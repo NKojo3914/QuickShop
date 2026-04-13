@@ -1,0 +1,5 @@
+[phases.install]
+cmds = ["corepack enable && corepack pnpm install --no-frozen-lockfile"]
+
+[phases.build]
+cmds = ["PORT=3001 BASE_PATH=/ corepack pnpm run build:prod"]

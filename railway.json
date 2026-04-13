@@ -2,7 +2,7 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "corepack enable && corepack pnpm install --no-frozen-lockfile && PORT=3001 BASE_PATH=/ corepack pnpm run build:prod"
+    "buildCommand": "PORT=3001 BASE_PATH=/ corepack pnpm run build:prod"
   },
   "deploy": {
     "startCommand": "corepack pnpm run start:prod",
