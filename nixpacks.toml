@@ -1,6 +1,9 @@
 [phases.setup]
 nixPkgs = ["nodejs_20", "curl"]
 
+[variables]
+NIXPACKS_PATH = "/usr/local/bin"
+
 [phases.install]
 cmds = ["curl -fsSL https://github.com/pnpm/pnpm/releases/download/v10.33.0/pnpm-linux-x64 -o /usr/local/bin/pnpm && chmod +x /usr/local/bin/pnpm && /usr/local/bin/pnpm install --no-frozen-lockfile"]
 
