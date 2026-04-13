@@ -1,0 +1,41 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "API Server",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@workspace/api-server", "run", "dev"],
+      "port": 3001,
+      "env": {
+        "PORT": "3001",
+        "DATABASE_URL": "postgresql://postgres:postgres@localhost:5433/postgres",
+        "JWT_SECRET": "3b9f9f88ebd11127e813e7aea7b4eeaccc89e2b7d5369479674601a9dd45bd38981cefb534c5bf4aa7d69c48de6e0ea1",
+        "TELEGRAM_BOT_TOKEN": "8696648055:AAFFPvNh-ZyXLgs3hButDdsDpznpcKTH4Rg",
+        "TELEGRAM_WEBHOOK_BASE_URL": "https://latent-escartelly-valeri.ngrok-free.dev"
+      }
+    },
+    {
+      "name": "Shop (Frontend)",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@workspace/shop", "run", "dev"],
+      "port": 3000,
+      "autoPort": true,
+      "env": {
+        "PORT": "{{port}}",
+        "BASE_PATH": "/",
+        "API_PORT": "3001"
+      }
+    },
+    {
+      "name": "Mockup Sandbox",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@workspace/mockup-sandbox", "run", "dev"],
+      "port": 5174,
+      "autoPort": true,
+      "env": {
+        "PORT": "{{port}}",
+        "BASE_PATH": "/"
+      }
+    }
+  ]
+}
