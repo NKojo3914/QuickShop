@@ -35,7 +35,6 @@ COPY --from=base /app/package.json ./package.json
 COPY --from=base /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
 
 ENV NODE_ENV=production
-ENV PORT=3001
 
 EXPOSE 3001
 
