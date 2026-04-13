@@ -2,7 +2,7 @@
 nixPkgs = ["nodejs_20"]
 
 [phases.install]
-cmds = ["npm install -g pnpm --prefer-online && pnpm install --no-frozen-lockfile"]
+cmds = ["corepack enable && pnpm install --no-frozen-lockfile"]
 
 [phases.build]
 cmds = ["PORT=3001 BASE_PATH=/ pnpm run build:prod"]
