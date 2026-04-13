@@ -50,6 +50,10 @@ Thumbs.db
 
 # Local development uploads (non-Replit)
 artifacts/api-server/local-uploads/
+local-uploads/
+
+# Embedded git repo (not a submodule)
+git/
 
 # Secrets
 .env
