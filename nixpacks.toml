@@ -2,7 +2,7 @@
 nixPkgs = ["nodejs_20", "curl"]
 
 [phases.install]
-cmds = ["curl -fsSL https://get.pnpm.io/install.sh | PNPM_HOME=/usr/local/bin PNPM_VERSION=10.33.0 sh - && pnpm install --no-frozen-lockfile"]
+cmds = ["curl -fsSL https://github.com/pnpm/pnpm/releases/download/v10.33.0/pnpm-linux-x64 -o /usr/local/bin/pnpm && chmod +x /usr/local/bin/pnpm && pnpm install --no-frozen-lockfile"]
 
 [phases.build]
 cmds = ["PORT=3001 BASE_PATH=/ pnpm run build:prod"]
