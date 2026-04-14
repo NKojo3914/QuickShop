@@ -519,25 +519,34 @@ export async function processTelegramUpdate(
   }
 
   if (isConfirmation) {
-    // Ask the AI to produce the CONFIRM_ORDER line so it captures negotiated
-    // prices correctly. Fall back to the cart greeting if the AI fails.
-    const aiHistoryForConfirm = history.filter((m) => m.role !== "system").slice(-14);
-    try {
-      const confirmText = await callAI(systemPrompt, userText, aiHistoryForConfirm);
-      if (confirmText.includes("CONFIRM_ORDER:")) {
-        confirmedOrderSummary = confirmText.split("CONFIRM_ORDER:")[1]?.trim().split("\n")[0] || "";
-      }
-    } catch { /* ignore — fall through to greeting-based fallback */ }
+    // Build the order summary WITHOUT calling the AI (avoids double latency
+    // and race conditions when the AI is slow).
+    // Priority 1: most recent CONFIRM_ORDER: line the AI already emitted
+    const confirmOrderMsg = [...history].reverse().find(
+      (m) => m.role === "assistant" && m.content.includes("CONFIRM_ORDER:")
+    );
+    if (confirmOrderMsg) {
+      confirmedOrderSummary = confirmOrderMsg.content
+        .split("CONFIRM_ORDER:")[1]?.trim().split("\n")[0] || "";
+    }
 
+    // Priority 2: most recent assistant message that mentions "Total" (final price)
     if (!confirmedOrderSummary) {
-      // Fallback: use the original cart greeting (always has "Here's your cart")
+      const totalMsg = [...history].reverse().find(
+        (m) => m.role === "assistant" && m.content.includes("Total")
+      );
+      if (totalMsg) confirmedOrderSummary = totalMsg.content.slice(0, 300);
+    }
+
+    // Priority 3: original cart greeting
+    if (!confirmedOrderSummary) {
       const cartMsg = [...history].reverse().find(
         (m) => m.role === "assistant" && m.content.includes("Here's your cart")
       );
-      confirmedOrderSummary = cartMsg
-        ? cartMsg.content.slice(0, 300)
-        : `Order from ${store.name}`;
+      if (cartMsg) confirmedOrderSummary = cartMsg.content.slice(0, 300);
     }
+
+    if (!confirmedOrderSummary) confirmedOrderSummary = `Order from ${store.name}`;
 
     // Ask for phone number before finalising
     const phoneAsk = `Perfect! 📞 Before I confirm your order, could you share your phone number so the seller can reach you?`;
@@ -569,10 +578,10 @@ export async function processTelegramUpdate(
         `Web search result: ${searchResult}\n\nRespond to the customer based on this.`,
       );
     } else if (responseText.includes("CONFIRM_ORDER:") && !orderAlreadyPlaced) {
-      const summary = responseText.split("CONFIRM_ORDER:")[1]?.trim().split("\n")[0] || "";
-      confirmedOrderSummary = summary;
-      // Ask for phone instead of immediately confirming
-      assistantResponse = `📞 Before I confirm your order, could you share your phone number so the seller can reach you?`;
+      confirmedOrderSummary = responseText.split("CONFIRM_ORDER:")[1]?.trim().split("\n")[0] || "";
+      // Strip the CONFIRM_ORDER: line from what the customer sees — just show the warm message after it
+      const warmPart = responseText.split("\n").filter((l) => !l.startsWith("CONFIRM_ORDER:")).join("\n").trim();
+      assistantResponse = warmPart || `📞 Before I confirm your order, could you share your phone number so the seller can reach you?`;
     } else {
       assistantResponse = responseText;
     }
@@ -600,11 +609,14 @@ export async function processTelegramUpdate(
     return;
   }
 
-  // Persist conversation history
-  // When AI outputs CONFIRM_ORDER we store the phone-await marker and show the phone-ask message
+  // Persist conversation history.
+  // When AI outputs CONFIRM_ORDER: store three rows — the CONFIRM_ORDER line
+  // (so isConfirmation Priority 1 can find the negotiated summary next turn),
+  // the ORDER_AWAITING_PHONE marker, and the warm reply the customer sees.
   if (confirmedOrderSummary) {
     await db.insert(messages).values([
       { conversationId, role: "user", content: userText },
+      { conversationId, role: "assistant", content: `CONFIRM_ORDER: ${confirmedOrderSummary}` },
       { conversationId, role: "assistant", content: `ORDER_AWAITING_PHONE: ${confirmedOrderSummary}` },
       { conversationId, role: "assistant", content: assistantResponse },
     ]);
