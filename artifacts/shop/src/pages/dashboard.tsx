@@ -1213,7 +1213,7 @@ export default function Dashboard() {
 
       {/* Orders Sidebar */}
       <Sheet open={ordersOpen} onOpenChange={setOrdersOpen}>
-        <SheetContent side="right" className="w-full sm:w-[420px] p-0 flex flex-col">
+        <SheetContent side="right" className="w-full sm:w-[420px] p-0 flex flex-col [&>button:first-of-type]:hidden">
           <SheetHeader className="px-5 pt-5 pb-4 border-b shrink-0">
             <div className="flex items-center justify-between">
               <SheetTitle className="text-xl font-serif flex items-center gap-2">
