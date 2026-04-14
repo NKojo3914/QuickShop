@@ -220,6 +220,7 @@ export default function Dashboard() {
   });
 
   const [ordersOpen, setOrdersOpen] = useState(false);
+  const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
   const [telegramToken, setTelegramToken] = useState("");
   const [telegramUsername, setTelegramUsername] = useState("");
   const [isTelegramSettingsOpen, setIsTelegramSettingsOpen] = useState(false);
@@ -1292,7 +1293,10 @@ export default function Dashboard() {
                             <span className="text-[10px] font-mono text-muted-foreground">{orderRef(order.id)}</span>
                           </div>
                         </div>
-                        <p className="text-xs text-muted-foreground line-clamp-2">{order.summary}</p>
+                        <p
+                          className={`text-xs text-muted-foreground cursor-pointer ${expandedOrderId === order.id ? "" : "line-clamp-2"}`}
+                          onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                        >{order.summary}</p>
                         <div className="flex items-center justify-between">
                           <span className="text-xs text-muted-foreground/60 flex items-center gap-1">
                             <Clock className="w-3 h-3" />{new Date(order.createdAt).toLocaleString()}
@@ -1349,7 +1353,10 @@ export default function Dashboard() {
                             <span className="text-[10px] font-mono text-muted-foreground">{orderRef(order.id)}</span>
                           </div>
                         </div>
-                        <p className="text-xs text-muted-foreground line-clamp-2">{order.summary}</p>
+                        <p
+                          className={`text-xs text-muted-foreground cursor-pointer ${expandedOrderId === order.id ? "" : "line-clamp-2"}`}
+                          onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                        >{order.summary}</p>
                         <div className="flex items-center justify-between">
                           <span className="text-xs text-muted-foreground/60 flex items-center gap-1">
                             <Clock className="w-3 h-3" />{new Date(order.createdAt).toLocaleString()}
@@ -1414,7 +1421,10 @@ export default function Dashboard() {
                             <span className="text-[10px] font-mono text-muted-foreground">{orderRef(order.id)}</span>
                           </div>
                         </div>
-                        <p className="text-xs text-muted-foreground line-clamp-2">{order.summary}</p>
+                        <p
+                          className={`text-xs text-muted-foreground cursor-pointer ${expandedOrderId === order.id ? "" : "line-clamp-2"}`}
+                          onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                        >{order.summary}</p>
                         <span className="text-xs text-muted-foreground/60 flex items-center gap-1">
                           <Clock className="w-3 h-3" />{new Date(order.createdAt).toLocaleString()}
                         </span>
