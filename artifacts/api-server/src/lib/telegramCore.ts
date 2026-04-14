@@ -419,24 +419,9 @@ export async function processTelegramUpdate(
   let assistantResponse = "";
   let confirmedOrderSummary = "";
 
-  // Detect confirmation intent directly — don't rely on the AI to output a magic token
-  const confirmationPhrases = [
-    "place my order", "place the order", "confirm my order", "confirm the order",
-    "go ahead", "proceed", "yes confirm", "yes, confirm", "i confirm", "place it",
-    "you have my consent", "yes place", "yes, place", "ok place", "okay place",
-    "do it", "yes go ahead", "proceed with", "finalize", "complete the order",
-    "confirm order", "confirm it", "let's do it", "lets do it",
-    "yes please", "yes, please", "ok go", "okay go",
-  ];
-  // Single words that mean "yes" — only treated as confirmation when the bot
-  // has already shown a cart/total/confirm prompt in this session.
-  const confirmationWords = ["yes", "ok", "okay", "yep", "yea", "yeah", "sure",
-    "confirm", "confirmed", "proceed", "done", "go"];
   const lowerText = userText.toLowerCase().trim();
 
   // Only treat an order as already placed if it happened in the CURRENT session
-  // (i.e. after a SESSION_START marker). Without this, old ORDER_PLACED markers
-  // from previous test sessions block all new confirmations indefinitely.
   const hasSessionStart = history.some((m) => m.role === "system" && m.content.startsWith("SESSION_START:"));
   const orderAlreadyPlaced = hasSessionStart && history.some((m) => m.role === "assistant" && m.content.startsWith("ORDER_PLACED:"));
 
@@ -448,19 +433,24 @@ export async function processTelegramUpdate(
     )
   );
 
-  // Normalize repeated characters so "yesss"→"yes", "yeahhh"→"yeah", "okayyyy"→"okay"
-  const normalizedText = lowerText.replace(/(.)\1+/g, "$1");
-
-  // Word-boundary check on both raw and normalized text
-  const containsConfirmWord = confirmationWords.some((w) =>
-    new RegExp(`\\b${w}\\b`).test(lowerText) ||
-    new RegExp(`\\b${w}\\b`).test(normalizedText)
-  );
-
-  const isConfirmation = !orderAlreadyPlaced && (
-    confirmationPhrases.some((p) => lowerText.includes(p))
-    || (containsConfirmWord && historyHasCartContext)
-  );
+  // Ask the AI to classify intent — handles any phrasing ("Yesss", "why not",
+  // "let's go", "100%", etc.) without a hardcoded word list.
+  // Only runs when there's cart context and the order isn't already placed.
+  let isConfirmation = false;
+  if (!orderAlreadyPlaced && historyHasCartContext) {
+    try {
+      const verdict = await groqChat([
+        { role: "system", content: 'You are a yes/no classifier. Reply with ONLY the word "YES" or "NO".' },
+        {
+          role: "user",
+          content: `A shopping bot just showed a customer their cart or asked them to confirm an order. The customer replied: "${userText}"\n\nIs the customer agreeing / confirming they want to place the order? Reply YES or NO only.`,
+        },
+      ]);
+      isConfirmation = verdict.trim().toUpperCase().startsWith("Y");
+    } catch {
+      // Classifier failed — fall through to the main AI call
+    }
+  }
 
   // ── Check if we're awaiting a phone number from a previous turn ──────────
   // IMPORTANT: only treat it as pending if the AWAITING_PHONE marker is the most recent
@@ -597,6 +587,18 @@ export async function processTelegramUpdate(
       assistantResponse = warmPart || `📞 Before I confirm your order, could you share your phone number so the seller can reach you?`;
     } else {
       assistantResponse = responseText;
+      // Safety net: AI confirmed the order in natural language but forgot CONFIRM_ORDER:
+      // Detect by looking for completion phrases in the response.
+      const completionPhrases = ["on its way", "order is confirmed", "order has been placed",
+        "order placed", "we'll be in touch", "seller will contact"];
+      if (!orderAlreadyPlaced && historyHasCartContext &&
+          completionPhrases.some((p) => responseText.toLowerCase().includes(p))) {
+        const totalMsg = [...history].reverse().find(
+          (m) => m.role === "assistant" && m.content.includes("Total")
+        );
+        confirmedOrderSummary = totalMsg ? totalMsg.content.slice(0, 300) : `Order from ${store.name}`;
+        assistantResponse = `📞 Before I confirm your order, could you share your phone number so the seller can reach you?`;
+      }
     }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
