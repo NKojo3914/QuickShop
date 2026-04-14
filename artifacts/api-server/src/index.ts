@@ -22,7 +22,8 @@ if (Number.isNaN(port) || port <= 0) {
 const { default: app } = await import("./app");
 const { logger } = await import("./lib/logger");
 const { startTelegramPolling } = await import("./lib/telegramPolling");
-const { pool } = await import("@workspace/db");
+const { pool, db, storesTable } = await import("@workspace/db");
+const { isNotNull } = await import("drizzle-orm");
 
 // Ensure Telegram dedup tables exist before accepting traffic.
 try {
@@ -47,6 +48,33 @@ try {
   logger.info("Telegram dedup tables ready");
 } catch (err) {
   logger.warn({ err }, "Could not ensure Telegram dedup tables");
+}
+
+// Auto-register webhooks at startup so deploys never leave the bot unresponsive.
+// Only runs in webhook mode (TELEGRAM_WEBHOOK_BASE_URL set, TELEGRAM_POLLING not forced).
+const webhookBase = process.env.TELEGRAM_WEBHOOK_BASE_URL?.trim().replace(/\/+$/, "");
+const forcedPolling = process.env.TELEGRAM_POLLING === "true";
+if (webhookBase && !forcedPolling) {
+  try {
+    const stores = await db.select().from(storesTable).where(isNotNull(storesTable.telegramBotToken));
+    for (const store of stores) {
+      if (!store.telegramBotToken) continue;
+      const webhookUrl = `${webhookBase}/api/telegram/webhook/${store.id}`;
+      const res = await fetch(`https://api.telegram.org/bot${store.telegramBotToken}/setWebhook`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: webhookUrl }),
+      });
+      const data = (await res.json()) as { ok: boolean; description?: string };
+      if (data.ok) {
+        logger.info({ storeId: store.id, webhookUrl }, "Telegram webhook (re-)registered at startup");
+      } else {
+        logger.warn({ storeId: store.id, description: data.description }, "Telegram webhook registration failed at startup");
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, "Could not auto-register Telegram webhooks at startup");
+  }
 }
 
 app.listen(port, (err) => {
