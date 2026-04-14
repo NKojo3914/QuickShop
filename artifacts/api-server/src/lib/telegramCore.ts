@@ -265,6 +265,24 @@ async function getConversationHistory(conversationId: number): Promise<MessageRo
   return chronological.slice(-6);
 }
 
+/**
+ * Extract a clean, seller-readable order summary from any bot message.
+ * Strips markdown, the "Hi X! Here's your cart…" greeting, and the
+ * "Shall I confirm?" tail — keeping only item lines and the total.
+ */
+function cleanSummary(raw: string): string {
+  return raw
+    .split("\n")
+    .map((l) => l.replace(/\*/g, "").trim())          // strip markdown bold
+    .filter((l) =>
+      l.startsWith("•") ||                             // item lines
+      /^total:/i.test(l) ||                            // Total: GHS …
+      /\bx\d+\b.*GHS/i.test(l)                        // "1x Item @ GHS …"
+    )
+    .join("\n")
+    .trim();
+}
+
 function buildSystemPrompt(
   store: typeof storesTable.$inferSelect,
   products: ProductRow[],
@@ -528,9 +546,9 @@ export async function processTelegramUpdate(
   }
 
   if (isConfirmation) {
-    // Build the order summary WITHOUT calling the AI (avoids double latency
-    // and race conditions when the AI is slow).
-    // Priority 1: most recent CONFIRM_ORDER: line the AI already emitted
+    // Build a clean, seller-readable order summary.
+
+    // Priority 1: most recent CONFIRM_ORDER: line the AI already emitted (has negotiated price)
     const confirmOrderMsg = [...history].reverse().find(
       (m) => m.role === "assistant" && m.content.includes("CONFIRM_ORDER:")
     );
@@ -539,20 +557,21 @@ export async function processTelegramUpdate(
         .split("CONFIRM_ORDER:")[1]?.trim().split("\n")[0] || "";
     }
 
-    // Priority 2: most recent assistant message that mentions "Total" (final price)
+    // Priority 2: "Just to confirm — you'd like to pay X for Y?" bot message
+    // (captures the agreed negotiated price)
     if (!confirmedOrderSummary) {
-      const totalMsg = [...history].reverse().find(
-        (m) => m.role === "assistant" && m.content.includes("Total")
+      const jtcMsg = [...history].reverse().find(
+        (m) => m.role === "assistant" && m.content.toLowerCase().startsWith("just to confirm")
       );
-      if (totalMsg) confirmedOrderSummary = totalMsg.content.slice(0, 300);
+      if (jtcMsg) confirmedOrderSummary = jtcMsg.content.replace(/\*/g, "").trim();
     }
 
-    // Priority 3: original cart greeting
+    // Priority 3: cart greeting — extract only item lines + total, strip boilerplate
     if (!confirmedOrderSummary) {
       const cartMsg = [...history].reverse().find(
         (m) => m.role === "assistant" && m.content.includes("Here's your cart")
       );
-      if (cartMsg) confirmedOrderSummary = cartMsg.content.slice(0, 300);
+      if (cartMsg) confirmedOrderSummary = cleanSummary(cartMsg.content);
     }
 
     if (!confirmedOrderSummary) confirmedOrderSummary = `Order from ${store.name}`;
@@ -602,7 +621,7 @@ export async function processTelegramUpdate(
         const totalMsg = [...history].reverse().find(
           (m) => m.role === "assistant" && m.content.includes("Total")
         );
-        confirmedOrderSummary = totalMsg ? totalMsg.content.slice(0, 300) : `Order from ${store.name}`;
+        confirmedOrderSummary = totalMsg ? (cleanSummary(totalMsg.content) || totalMsg.content.slice(0, 300)) : `Order from ${store.name}`;
         assistantResponse = `📞 Before I confirm your order, could you share your phone number so the seller can reach you?`;
       }
     }
