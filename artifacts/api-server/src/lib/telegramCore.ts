@@ -476,7 +476,7 @@ export async function processTelegramUpdate(
   // Also reject inputs that look like confirmations rather than phone numbers.
   // Require at least 7 digits so "yes12" or "go ahead3" can't be captured as a phone.
   const digitCount = (userText.match(/\d/g) || []).length;
-  const looksLikePhone = digitCount >= 7 && !confirmationPhrases.some((p) => lowerText.includes(p));
+  const looksLikePhone = digitCount >= 7;
 
   if (validAwaitingPhone) {
     const pendingSummary = awaitingPhoneMsg!.content.slice("ORDER_AWAITING_PHONE:".length).trim();
