@@ -435,15 +435,21 @@ export async function processTelegramUpdate(
 
   // Ask the AI to classify intent — handles any phrasing ("Yesss", "why not",
   // "let's go", "100%", etc.) without a hardcoded word list.
-  // Only runs when there's cart context and the order isn't already placed.
+  // Include the bot's last message so the classifier has full context:
+  // "I'll pay 1000gh" after "Shall I confirm?" is NOT a confirmation,
+  // but "Yesss" after "Just to confirm — you'd like to pay GHS 1000?" IS.
   let isConfirmation = false;
   if (!orderAlreadyPlaced && historyHasCartContext) {
+    const lastBotMsg = [...history].reverse().find((m) => m.role === "assistant" &&
+      !m.content.startsWith("ORDER_AWAITING_PHONE:") &&
+      !m.content.startsWith("ORDER_PLACED:") &&
+      !m.content.startsWith("CONFIRM_ORDER:"));
     try {
       const verdict = await groqChat([
         { role: "system", content: 'You are a yes/no classifier. Reply with ONLY the word "YES" or "NO".' },
         {
           role: "user",
-          content: `A shopping bot just showed a customer their cart or asked them to confirm an order. The customer replied: "${userText}"\n\nIs the customer agreeing / confirming they want to place the order? Reply YES or NO only.`,
+          content: `Bot's last message: "${lastBotMsg?.content?.slice(0, 200) ?? ""}"\nCustomer's reply: "${userText}"\n\nIs the customer directly confirming/agreeing to place the order as the bot proposed? Reply YES or NO only.`,
         },
       ]);
       isConfirmation = verdict.trim().toUpperCase().startsWith("Y");
