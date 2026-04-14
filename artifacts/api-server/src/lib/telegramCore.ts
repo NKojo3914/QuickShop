@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql, desc } from "drizzle-orm";
 import { db, storesTable, productsTable, conversations, messages, ordersTable } from "@workspace/db";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
@@ -191,9 +191,25 @@ async function searchWeb(query: string): Promise<string> {
 }
 
 async function getOrCreateConversation(storeId: number, telegramChatId: number): Promise<number> {
-  const title = `telegram-${telegramChatId}-store-${storeId}`;
-  const existing = await db.select().from(conversations).where(eq(conversations.title, title)).limit(1);
+  const prefix = `telegram-${telegramChatId}-store-${storeId}`;
+  // Match both the legacy exact title and the new timestamped variant; pick the most recent.
+  const existing = await db
+    .select()
+    .from(conversations)
+    .where(sql`${conversations.title} LIKE ${prefix + "%"}`)
+    .orderBy(desc(conversations.createdAt))
+    .limit(1);
   if (existing.length > 0) return existing[0].id;
+  const [conv] = await db.insert(conversations).values({ title: prefix }).returning();
+  return conv.id;
+}
+
+/**
+ * Create a brand-new conversation for a fresh /start session.
+ * Timestamped title prevents old ORDER_AWAITING_PHONE markers from leaking in.
+ */
+async function createFreshConversation(storeId: number, telegramChatId: number): Promise<number> {
+  const title = `telegram-${telegramChatId}-store-${storeId}-${Date.now()}`;
   const [conv] = await db.insert(conversations).values({ title }).returning();
   return conv.id;
 }
@@ -303,9 +319,9 @@ export async function processTelegramUpdate(
       ? `Hi ${firstName || "there"}! 👋 Here's your cart from *${store.name}*:\n\n${cartLines}\n\n*Total: ${store.currency || "GHS"} ${total.toFixed(2)}*\n\nShall I confirm this order, or would you like to make any changes?`
       : `Hi ${firstName || "there"}! 👋 Welcome to *${store.name}*. How can I help you today?`;
 
-    // Save the greeting to the conversation so the user can reply "yes, confirm"
-    // and the bot can find the cart summary in history.
-    const conversationId = await getOrCreateConversation(storeId, chatId);
+    // Start a FRESH conversation for every /start so old ORDER_AWAITING_PHONE
+    // markers from previous sessions never pollute the new cart flow.
+    const conversationId = await createFreshConversation(storeId, chatId);
     await db.insert(messages).values({ conversationId, role: "assistant", content: greeting });
 
     await sendTelegramMessage(store.telegramBotToken, chatId, greeting);
@@ -329,7 +345,6 @@ export async function processTelegramUpdate(
   const history = await getConversationHistory(conversationId);
 
   let assistantResponse = "";
-  let orderConfirmed = false;
   let confirmedOrderSummary = "";
 
   // Detect confirmation intent directly — don't rely on the AI to output a magic token
@@ -354,11 +369,33 @@ export async function processTelegramUpdate(
   );
 
   // ── Check if we're awaiting a phone number from a previous turn ──────────
-  const awaitingPhoneMsg = [...history].reverse().find(
+  // IMPORTANT: only treat it as pending if the AWAITING_PHONE marker is the most recent
+  // assistant message AND there are NO user messages after it in history.
+  // This prevents stale markers from old sessions from being triggered by new messages.
+  const reversedHistory = [...history].reverse();
+  const awaitingPhoneIdx = reversedHistory.findIndex(
     (m) => m.role === "assistant" && m.content.startsWith("ORDER_AWAITING_PHONE:")
   );
-  if (awaitingPhoneMsg && !orderAlreadyPlaced) {
-    const pendingSummary = awaitingPhoneMsg.content.slice("ORDER_AWAITING_PHONE:".length).trim();
+  const awaitingPhoneMsg = awaitingPhoneIdx >= 0 ? reversedHistory[awaitingPhoneIdx] : null;
+  // Valid only if no user messages exist AFTER the marker (i.e. at lower index in reversed array)
+  const validAwaitingPhone =
+    awaitingPhoneMsg !== null &&
+    !orderAlreadyPlaced &&
+    !reversedHistory.slice(0, awaitingPhoneIdx).some((m) => m.role === "user");
+
+  // Also reject inputs that look like confirmations rather than phone numbers
+  const looksLikePhone = /\d/.test(userText) && !confirmationPhrases.some((p) => lowerText.includes(p));
+
+  if (validAwaitingPhone) {
+    if (!looksLikePhone) {
+      // User replied with a confirmation phrase instead of a phone number — re-ask.
+      const reAsk = `📞 Please share your phone number (e.g. 0241234567) so the seller can reach you to arrange delivery.`;
+      await db.insert(messages).values({ conversationId, role: "user", content: userText });
+      await sendTelegramMessage(store.telegramBotToken, chatId, reAsk);
+      return;
+    }
+
+    const pendingSummary = awaitingPhoneMsg!.content.slice("ORDER_AWAITING_PHONE:".length).trim();
     const customerPhone = userText.replace(/\s+/g, "").slice(0, 30);
 
     const [newOrder] = await db.insert(ordersTable).values({
