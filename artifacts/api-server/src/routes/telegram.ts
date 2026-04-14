@@ -31,8 +31,14 @@ router.post("/telegram/webhook/:storeId", async (req, res): Promise<void> => {
         return;
       }
     } catch (err) {
-      // If the dedup table doesn't exist yet (first deploy), log and proceed anyway.
-      req.log.warn({ err }, "Telegram dedup table not ready, processing without dedup");
+      const code = (err as { code?: string }).code;
+      if (code === "42P01") {
+        // Table doesn't exist yet (race with startup migration) — process without dedup this once.
+        req.log.warn({ updateId }, "Telegram dedup table missing, processing without dedup");
+      } else {
+        // Unexpected DB error — log but don't block the message.
+        req.log.error({ err, updateId }, "Telegram dedup INSERT failed");
+      }
     }
   }
 
