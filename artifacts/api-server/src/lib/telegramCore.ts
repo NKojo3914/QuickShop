@@ -344,6 +344,45 @@ export async function processTelegramUpdate(
     || (lowerText.trim() === "yes" && history.some((m) => m.role === "assistant" && m.content.toLowerCase().includes("confirm")))
   );
 
+  // ── Check if we're awaiting a phone number from a previous turn ──────────
+  const awaitingPhoneMsg = [...history].reverse().find(
+    (m) => m.role === "assistant" && m.content.startsWith("ORDER_AWAITING_PHONE:")
+  );
+  if (awaitingPhoneMsg && !orderAlreadyPlaced) {
+    const pendingSummary = awaitingPhoneMsg.content.slice("ORDER_AWAITING_PHONE:".length).trim();
+    const customerPhone = userText.replace(/\s+/g, "").slice(0, 30);
+
+    const [newOrder] = await db.insert(ordersTable).values({
+      storeId,
+      customerName,
+      customerPhone,
+      customerTelegramChatId: chatId,
+      summary: pendingSummary,
+      status: "pending",
+    }).returning();
+
+    const ref = `QS-${String(newOrder.id).padStart(4, "0")}`;
+    assistantResponse = `✅ Order *${ref}* confirmed, ${firstName || "my friend"}! The seller will contact you on *${customerPhone}* to arrange payment and delivery. Thank you for shopping with *${store.name}*! 🛍️`;
+
+    await db.insert(messages).values([
+      { conversationId, role: "user", content: userText },
+      { conversationId, role: "assistant", content: `ORDER_PLACED: ${pendingSummary}` },
+      { conversationId, role: "assistant", content: assistantResponse },
+    ]);
+
+    if (store.sellerTelegramChatId && store.telegramBotToken) {
+      const orderTime = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+      await sendTelegramMessage(
+        store.telegramBotToken,
+        store.sellerTelegramChatId,
+        `🛒 *New Order ${ref}*\n\n👤 *Customer:* ${customerName}\n📞 *Phone:* ${customerPhone}\n📦 *Order:* ${pendingSummary}\n🕐 *Time:* ${orderTime}\n\nOpen your dashboard to confirm.`,
+      );
+    }
+
+    await sendTelegramMessage(store.telegramBotToken, chatId, assistantResponse);
+    return;
+  }
+
   if (isConfirmation && history.length > 0) {
     // Extract order summary from the most recent assistant message that mentions a total or items
     const recentBotMsg = [...history].reverse().find(
@@ -352,34 +391,15 @@ export async function processTelegramUpdate(
     confirmedOrderSummary = recentBotMsg
       ? recentBotMsg.content.slice(0, 200)
       : `Order from ${store.name}`;
-    orderConfirmed = true;
-    assistantResponse = `✅ Order confirmed, ${firstName || "my friend"}! The seller will be in touch with you shortly to arrange payment and delivery. Thank you for shopping with *${store.name}*! 🛍️`;
 
-    // Persist: marker first (hidden from customer), then the visible confirmation
+    // Ask for phone number before finalising
+    const phoneAsk = `Perfect! 📞 Before I confirm your order, could you share your phone number so the seller can reach you?`;
     await db.insert(messages).values([
       { conversationId, role: "user", content: userText },
-      { conversationId, role: "assistant", content: `ORDER_PLACED: ${confirmedOrderSummary}` },
-      { conversationId, role: "assistant", content: assistantResponse },
+      { conversationId, role: "assistant", content: `ORDER_AWAITING_PHONE: ${confirmedOrderSummary}` },
+      { conversationId, role: "assistant", content: phoneAsk },
     ]);
-
-    const [newOrder] = await db.insert(ordersTable).values({
-      storeId,
-      customerName,
-      customerTelegramChatId: chatId,
-      summary: confirmedOrderSummary,
-      status: "pending",
-    }).returning();
-
-    if (store.sellerTelegramChatId && store.telegramBotToken) {
-      const orderTime = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-      await sendTelegramMessage(
-        store.telegramBotToken,
-        store.sellerTelegramChatId,
-        `🛒 *New Order #${newOrder.id}*\n\n👤 *Customer:* ${customerName}\n📦 *Order:* ${confirmedOrderSummary}\n🕐 *Time:* ${orderTime}\n\nOpen your dashboard to confirm.`,
-      );
-    }
-
-    await sendTelegramMessage(store.telegramBotToken, chatId, assistantResponse);
+    await sendTelegramMessage(store.telegramBotToken, chatId, phoneAsk);
     return;
   }
 
@@ -398,15 +418,9 @@ export async function processTelegramUpdate(
       );
     } else if (responseText.includes("CONFIRM_ORDER:") && !orderAlreadyPlaced) {
       const summary = responseText.split("CONFIRM_ORDER:")[1]?.trim().split("\n")[0] || "";
-      orderConfirmed = true;
       confirmedOrderSummary = summary;
-      assistantResponse = await callAIFollowUp(
-        systemPrompt,
-        history,
-        userText,
-        responseText,
-        "Order recorded. Confirm to the customer warmly and let them know the seller will be in touch.",
-      );
+      // Ask for phone instead of immediately confirming
+      assistantResponse = `📞 Before I confirm your order, could you share your phone number so the seller can reach you?`;
     } else {
       assistantResponse = responseText;
     }
@@ -432,11 +446,12 @@ export async function processTelegramUpdate(
     return;
   }
 
-  // Persist conversation history (add ORDER_PLACED marker when order is confirmed via AI path)
-  if (orderConfirmed && confirmedOrderSummary) {
+  // Persist conversation history
+  // When AI outputs CONFIRM_ORDER we store the phone-await marker and show the phone-ask message
+  if (confirmedOrderSummary) {
     await db.insert(messages).values([
       { conversationId, role: "user", content: userText },
-      { conversationId, role: "assistant", content: `ORDER_PLACED: ${confirmedOrderSummary}` },
+      { conversationId, role: "assistant", content: `ORDER_AWAITING_PHONE: ${confirmedOrderSummary}` },
       { conversationId, role: "assistant", content: assistantResponse },
     ]);
   } else {
@@ -444,33 +459,6 @@ export async function processTelegramUpdate(
       { conversationId, role: "user", content: userText },
       { conversationId, role: "assistant", content: assistantResponse },
     ]);
-  }
-
-  // Save confirmed order and notify seller
-  if (orderConfirmed && confirmedOrderSummary) {
-    const [newOrder] = await db
-      .insert(ordersTable)
-      .values({
-        storeId,
-        customerName,
-        customerTelegramChatId: chatId,
-        summary: confirmedOrderSummary,
-        status: "pending",
-      })
-      .returning();
-
-    if (store.sellerTelegramChatId && store.telegramBotToken) {
-      const orderTime = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-      await sendTelegramMessage(
-        store.telegramBotToken,
-        store.sellerTelegramChatId,
-        `🛒 *New Order #${newOrder.id}*\n\n` +
-          `👤 *Customer:* ${customerName}\n` +
-          `📦 *Order:* ${confirmedOrderSummary}\n` +
-          `🕐 *Time:* ${orderTime}\n\n` +
-          `Open your dashboard to confirm or complete the order.`,
-      );
-    }
   }
 
   await sendTelegramMessage(store.telegramBotToken, chatId, assistantResponse);

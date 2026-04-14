@@ -3,6 +3,7 @@ import { useRoute, Link, useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useMutation } from "@tanstack/react-query";
 import {
   Store,
   Plus,
@@ -28,6 +29,7 @@ import {
   Phone,
   QrCode,
   Download,
+  MessageCircle,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -119,6 +121,17 @@ const storeSettingsSchema = z.object({
 });
 type StoreSettingsFormValues = z.infer<typeof storeSettingsSchema>;
 
+const logOrderSchema = z.object({
+  customerName: z.string().optional(),
+  customerPhone: z.string().optional(),
+  summary: z.string().min(1, "Order summary is required"),
+});
+type LogOrderFormValues = z.infer<typeof logOrderSchema>;
+
+function orderRef(id: number) {
+  return `QS-${String(id).padStart(4, "0")}`;
+}
+
 export default function Dashboard() {
   const [match, params] = useRoute("/manage/:slug");
   const slug = params?.slug;
@@ -158,6 +171,36 @@ export default function Dashboard() {
   const setupTelegramWebhookMutation = useSetupTelegramWebhook();
   const updateOrderMutation = useUpdateOrder();
   const logoutMutation = useLogout();
+  const [isLogOrderOpen, setIsLogOrderOpen] = useState(false);
+  const logOrderForm = useForm<LogOrderFormValues>({
+    resolver: zodResolver(logOrderSchema),
+    defaultValues: { customerName: "", customerPhone: "", summary: "" },
+  });
+  const logOrderMutation = useMutation({
+    mutationFn: async (data: LogOrderFormValues) => {
+      const res = await fetch(`/api/stores/${store?.id}/orders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error || "Failed to log order");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey(store?.id || 0) });
+      queryClient.invalidateQueries({ queryKey: getGetStoreSummaryQueryKey(store?.id || 0) });
+      logOrderForm.reset();
+      setIsLogOrderOpen(false);
+      toast({ title: "Order logged!", description: "The WhatsApp order has been saved." });
+    },
+    onError: (err: Error) => {
+      toast({ variant: "destructive", title: "Failed to log order", description: err.message });
+    },
+  });
 
   const handleLogout = () => {
     logoutMutation.mutate(undefined, {
@@ -1087,18 +1130,109 @@ export default function Dashboard() {
         </DialogContent>
       </Dialog>
 
+      {/* Log WhatsApp Order Dialog */}
+      <Dialog open={isLogOrderOpen} onOpenChange={setIsLogOrderOpen}>
+        <DialogContent className="sm:max-w-[440px] rounded-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-serif flex items-center gap-2">
+              <MessageCircle className="w-5 h-5 text-green-600" /> Log WhatsApp Order
+            </DialogTitle>
+            <DialogDescription>
+              Record an order placed via WhatsApp so you can track it on your dashboard.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...logOrderForm}>
+            <form
+              onSubmit={logOrderForm.handleSubmit((data) => logOrderMutation.mutate(data))}
+              className="space-y-4 py-2"
+            >
+              <FormField
+                control={logOrderForm.control}
+                name="customerName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Customer Name <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g. Kofi Mensah" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={logOrderForm.control}
+                name="customerPhone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Phone Number <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                    <FormControl>
+                      <div className="flex items-center">
+                        <span className="text-muted-foreground bg-muted px-3 py-2 text-sm border border-r-0 rounded-l-md select-none">
+                          <Phone className="w-4 h-4" />
+                        </span>
+                        <Input placeholder="+233XXXXXXXXX" className="rounded-l-none" {...field} />
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={logOrderForm.control}
+                name="summary"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Order Summary</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="e.g. 2x Tom Ford Jacket @ GHS 300, 1x Sneakers @ GHS 180. Total: GHS 780"
+                        className="resize-none"
+                        rows={3}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <DialogFooter className="pt-2">
+                <Button type="button" variant="outline" onClick={() => setIsLogOrderOpen(false)}>Cancel</Button>
+                <Button
+                  type="submit"
+                  disabled={logOrderMutation.isPending}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  {logOrderMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Log Order
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
       {/* Orders Sidebar */}
       <Sheet open={ordersOpen} onOpenChange={setOrdersOpen}>
         <SheetContent side="right" className="w-full sm:w-[420px] p-0 flex flex-col">
           <SheetHeader className="px-5 pt-5 pb-4 border-b shrink-0">
-            <SheetTitle className="text-xl font-serif flex items-center gap-2">
-              <Package className="w-5 h-5" /> Orders
-              {orders && orders.length > 0 && (
-                <Badge variant="secondary" className="ml-1 text-xs">
-                  {orders.length}
-                </Badge>
-              )}
-            </SheetTitle>
+            <div className="flex items-center justify-between">
+              <SheetTitle className="text-xl font-serif flex items-center gap-2">
+                <Package className="w-5 h-5" /> Orders
+                {orders && orders.length > 0 && (
+                  <Badge variant="secondary" className="ml-1 text-xs">
+                    {orders.length}
+                  </Badge>
+                )}
+              </SheetTitle>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-full text-xs gap-1.5 text-green-700 border-green-300 hover:bg-green-50 dark:text-green-400 dark:border-green-800 dark:hover:bg-green-950/40"
+                onClick={() => setIsLogOrderOpen(true)}
+              >
+                <MessageCircle className="w-3.5 h-3.5" /> Log WA Order
+              </Button>
+            </div>
           </SheetHeader>
 
           {isOrdersLoading ? (
@@ -1142,11 +1276,21 @@ export default function Dashboard() {
                     {orders!.filter(o => o.status === "pending").map(order => (
                       <div key={order.id} className="bg-card border rounded-xl p-3.5 flex flex-col gap-2 shadow-sm">
                         <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <User className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                            <span className="font-semibold text-sm text-foreground truncate">{order.customerName || "Customer"}</span>
+                          <div className="flex flex-col min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <User className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                              <span className="font-semibold text-sm text-foreground truncate">{order.customerName || "Customer"}</span>
+                            </div>
+                            {order.customerPhone && (
+                              <span className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5 ml-5">
+                                <Phone className="w-2.5 h-2.5" />{order.customerPhone}
+                              </span>
+                            )}
                           </div>
-                          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 shrink-0">Pending</span>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">Pending</span>
+                            <span className="text-[10px] font-mono text-muted-foreground">{orderRef(order.id)}</span>
+                          </div>
                         </div>
                         <p className="text-xs text-muted-foreground line-clamp-2">{order.summary}</p>
                         <div className="flex items-center justify-between">
@@ -1181,11 +1325,21 @@ export default function Dashboard() {
                     {orders!.filter(o => o.status === "confirmed").map(order => (
                       <div key={order.id} className="bg-card border rounded-xl p-3.5 flex flex-col gap-2 shadow-sm">
                         <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <User className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                            <span className="font-semibold text-sm text-foreground truncate">{order.customerName || "Customer"}</span>
+                          <div className="flex flex-col min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <User className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                              <span className="font-semibold text-sm text-foreground truncate">{order.customerName || "Customer"}</span>
+                            </div>
+                            {order.customerPhone && (
+                              <span className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5 ml-5">
+                                <Phone className="w-2.5 h-2.5" />{order.customerPhone}
+                              </span>
+                            )}
                           </div>
-                          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 shrink-0">Confirmed</span>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400">Confirmed</span>
+                            <span className="text-[10px] font-mono text-muted-foreground">{orderRef(order.id)}</span>
+                          </div>
                         </div>
                         <p className="text-xs text-muted-foreground line-clamp-2">{order.summary}</p>
                         <div className="flex items-center justify-between">
@@ -1220,13 +1374,23 @@ export default function Dashboard() {
                     {orders!.filter(o => o.status === "completed").map(order => (
                       <div key={order.id} className="bg-card border rounded-xl p-3.5 flex flex-col gap-2 shadow-sm opacity-80">
                         <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <User className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                            <span className="font-semibold text-sm text-foreground truncate">{order.customerName || "Customer"}</span>
+                          <div className="flex flex-col min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <User className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                              <span className="font-semibold text-sm text-foreground truncate">{order.customerName || "Customer"}</span>
+                            </div>
+                            {order.customerPhone && (
+                              <span className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5 ml-5">
+                                <Phone className="w-2.5 h-2.5" />{order.customerPhone}
+                              </span>
+                            )}
                           </div>
-                          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400 shrink-0 flex items-center gap-1">
-                            <CheckCircle2 className="w-3 h-3" /> Done
-                          </span>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> Done
+                            </span>
+                            <span className="text-[10px] font-mono text-muted-foreground">{orderRef(order.id)}</span>
+                          </div>
                         </div>
                         <p className="text-xs text-muted-foreground line-clamp-2">{order.summary}</p>
                         <span className="text-xs text-muted-foreground/60 flex items-center gap-1">
