@@ -108,7 +108,7 @@ export default function Register() {
           <span className="font-serif font-bold text-xl tracking-tight">QuickShop</span>
         </div>
 
-        <div className="bg-card border rounded-3xl p-8 shadow-sm">
+        <div className="bg-card border rounded-3xl p-5 sm:p-8 shadow-sm">
           <h1 className="text-2xl font-serif font-bold mb-1">Create your account</h1>
           <p className="text-sm text-muted-foreground mb-6">Sign up to open your QuickShop store.</p>
 

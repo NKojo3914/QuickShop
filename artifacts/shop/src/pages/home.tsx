@@ -201,14 +201,14 @@ export default function Home() {
           />
 
           <div className="container mx-auto px-4 max-w-6xl py-20 md:py-28 relative">
-            <div className="flex flex-col lg:flex-row items-center gap-16">
+            <div className="flex flex-col lg:flex-row items-center gap-8 lg:gap-16">
 
               {/* Left copy */}
               <div className="flex-1 text-center lg:text-left">
                 <Badge variant="secondary" className="mb-6 rounded-full px-4 py-1 text-xs font-medium">
                   🇬🇭 Built for Ghanaian sellers
                 </Badge>
-                <h1 className="text-5xl md:text-6xl lg:text-7xl font-serif font-bold text-foreground leading-[1.1] mb-6">
+                <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-serif font-bold text-foreground leading-[1.1] mb-6">
                   Your market stall,{" "}
                   <span className="text-primary">now online.</span>
                 </h1>
@@ -382,7 +382,7 @@ export default function Home() {
         {/* ── Create store form ── */}
         <section id="create" className="py-20 md:py-28 bg-muted/30">
           <div className="container mx-auto px-4 max-w-6xl">
-            <div className="flex flex-col lg:flex-row gap-16 items-start">
+            <div className="flex flex-col lg:flex-row gap-8 lg:gap-16 items-start">
 
               {/* Left copy */}
               <div className="flex-1 lg:sticky lg:top-24">
@@ -413,7 +413,7 @@ export default function Home() {
 
               {/* Right form */}
               <div className="flex-1 w-full">
-                <div className="bg-card border rounded-3xl p-8 shadow-sm">
+                <div className="bg-card border rounded-3xl p-5 sm:p-8 shadow-sm">
                   <h3 className="text-2xl font-serif font-bold text-foreground mb-1">Create your store</h3>
                   <p className="text-sm text-muted-foreground mb-7">Fill in the details below to get started.</p>
 
@@ -441,7 +441,7 @@ export default function Home() {
                             <FormLabel>Store URL</FormLabel>
                             <FormControl>
                               <div className="flex items-center">
-                                <span className="text-muted-foreground bg-muted px-3 py-2 text-sm border border-r-0 rounded-l-md select-none">
+                                <span className="text-muted-foreground bg-muted px-2 sm:px-3 py-2 text-xs sm:text-sm border border-r-0 rounded-l-md select-none whitespace-nowrap">
                                   quickshop.com/
                                 </span>
                                 <Input
@@ -529,7 +529,7 @@ export default function Home() {
                   </Form>
                 </div>
 
-                <div className="bg-card border rounded-3xl px-8 py-5 mt-4 flex items-center justify-between">
+                <div className="bg-card border rounded-3xl px-5 sm:px-8 py-5 mt-4 flex items-center justify-between">
                   <p className="text-sm font-medium text-foreground">Already have a store?</p>
                   <Button variant="outline" className="rounded-xl" asChild>
                     <Link href="/login">Log in</Link>

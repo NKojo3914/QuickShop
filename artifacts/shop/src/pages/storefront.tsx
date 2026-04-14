@@ -144,7 +144,7 @@ export default function Storefront() {
             <p className="text-muted-foreground">This store hasn't added any products yet.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-12">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-8 sm:gap-x-8 sm:gap-y-12">
             {products?.map(product => {
               const inCart = items.find(i => i.id === product.id);
               const justAdded = addedIds.has(product.id);
@@ -179,7 +179,7 @@ export default function Storefront() {
                       )}
                     </div>
                   )}
-                  <CardContent className="p-6 flex-1 flex flex-col">
+                  <CardContent className="p-4 sm:p-6 flex-1 flex flex-col">
                     <div className="flex justify-between items-start mb-3 gap-4">
                       <h3 className="font-bold text-xl text-foreground">{product.name}</h3>
                       <span className="font-bold text-primary bg-primary/10 px-3 py-1 rounded-full whitespace-nowrap">{store?.currency} {product.price}</span>

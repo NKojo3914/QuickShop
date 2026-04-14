@@ -559,21 +559,21 @@ export default function Dashboard() {
           </div>
         ) : store ? (
           <>
-            <div className="bg-card border rounded-3xl p-8 mb-10 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
-              <div>
-                <h1 className="text-3xl font-serif font-bold text-foreground mb-2">{store.name}</h1>
-                <p className="text-muted-foreground flex items-center gap-2">
-                  <LinkIcon className="w-4 h-4" /> quickshop.com/store/{store.slug}
+            <div className="bg-card border rounded-3xl p-5 sm:p-8 mb-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
+              <div className="min-w-0">
+                <h1 className="text-2xl sm:text-3xl font-serif font-bold text-foreground mb-2">{store.name}</h1>
+                <p className="text-muted-foreground flex items-center gap-2 text-sm truncate">
+                  <LinkIcon className="w-4 h-4 shrink-0" /> quickshop.com/store/{store.slug}
                 </p>
               </div>
-              <div className="flex flex-wrap gap-3">
-                <Button onClick={copyStoreLink} variant="outline" className="rounded-full px-6">
+              <div className="flex flex-wrap gap-2 w-full md:w-auto">
+                <Button onClick={copyStoreLink} variant="outline" className="rounded-full px-4 sm:px-6 flex-1 md:flex-none">
                   <Copy className="w-4 h-4 mr-2" /> Copy Link
                 </Button>
-                <Button onClick={() => setIsQrOpen(true)} variant="outline" className="rounded-full px-6">
+                <Button onClick={() => setIsQrOpen(true)} variant="outline" className="rounded-full px-4 sm:px-6 flex-1 md:flex-none">
                   <QrCode className="w-4 h-4 mr-2" /> QR Code
                 </Button>
-                <Button onClick={openCreateModal} className="rounded-full px-6">
+                <Button onClick={openCreateModal} className="rounded-full px-4 sm:px-6 w-full sm:w-auto">
                   <Plus className="w-4 h-4 mr-2" /> Add Product
                 </Button>
               </div>
