@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useRoute } from "wouter";
+import { useRoute, Link } from "wouter";
 import {
   Store,
   ShoppingBag,
@@ -110,7 +110,15 @@ export default function Storefront() {
   return (
     <div className="min-h-[100dvh] bg-background">
       {/* Store header */}
-      <div className="bg-card border-b pt-16 pb-12 shadow-sm">
+      <div className="bg-card border-b pt-10 pb-12 shadow-sm">
+        <div className="container mx-auto px-4 max-w-5xl">
+          <Link href="/" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-6">
+            <ShoppingBag className="w-3.5 h-3.5" />
+            <span className="font-serif font-semibold">QuickShop</span>
+            <span className="opacity-50">·</span>
+            <span>Browse all stores</span>
+          </Link>
+        </div>
         <div className="container mx-auto px-4 max-w-5xl text-center">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary text-primary-foreground mb-6 shadow-md overflow-hidden">
             {store?.logoUrl ? (
@@ -258,9 +266,9 @@ export default function Storefront() {
       </div>
 
       <footer className="bg-muted py-12 border-t text-center">
-        <p className="text-muted-foreground flex items-center justify-center gap-2">
+        <Link href="/" className="text-muted-foreground flex items-center justify-center gap-2 hover:text-foreground transition-colors">
           Powered by <ShoppingBag className="w-4 h-4" /> <span className="font-serif font-bold text-foreground">QuickShop</span>
-        </p>
+        </Link>
       </footer>
 
       {/* Cart Drawer */}

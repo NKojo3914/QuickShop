@@ -318,7 +318,7 @@ export default function Home() {
             ) : (
               /* ── Default: recent stores ── */
               <>
-                <p className="text-sm font-medium text-muted-foreground mb-5">Recently opened stores</p>
+                <p className="text-sm font-medium text-muted-foreground mb-5">Recently added stores</p>
                 {recentStores && recentStores.length > 0 ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     {recentStores.map(store => (
