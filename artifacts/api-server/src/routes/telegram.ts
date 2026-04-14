@@ -6,23 +6,47 @@ import { processTelegramUpdate } from "../lib/telegramCore";
 
 const router: IRouter = Router();
 
+// Deduplicate Telegram updates by update_id.
+// Telegram retries a webhook if it doesn't get 200 within ~30 s (AI calls can be slow).
+// Storing the last ~1000 update IDs in memory is enough — they expire after 10 minutes.
+const processedUpdateIds = new Map<number, ReturnType<typeof setTimeout>>();
+const UPDATE_DEDUP_TTL = 10 * 60 * 1000; // 10 minutes
+
+function isDuplicate(updateId: number): boolean {
+  return processedUpdateIds.has(updateId);
+}
+function markProcessed(updateId: number): void {
+  // Cancel any existing timer (shouldn't happen, but be safe)
+  const existing = processedUpdateIds.get(updateId);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => processedUpdateIds.delete(updateId), UPDATE_DEDUP_TTL);
+  processedUpdateIds.set(updateId, timer);
+}
+
 router.post("/telegram/webhook/:storeId", async (req, res): Promise<void> => {
+  // Respond to Telegram immediately — prevents retries caused by slow AI responses.
+  res.json({ ok: true });
+
   const raw = Array.isArray(req.params.storeId) ? req.params.storeId[0] : req.params.storeId;
   const storeId = parseInt(raw, 10);
+  if (isNaN(storeId)) return;
 
-  req.log.info({ storeId, body: req.body }, "Telegram webhook hit");
+  const body = req.body as Record<string, unknown>;
+  const updateId = typeof body.update_id === "number" ? body.update_id : null;
 
-  if (isNaN(storeId)) {
-    res.json({ ok: true });
-    return;
+  if (updateId !== null) {
+    if (isDuplicate(updateId)) {
+      req.log.warn({ storeId, updateId }, "Telegram webhook: duplicate update_id, skipping");
+      return;
+    }
+    markProcessed(updateId);
   }
 
-  try {
-    await processTelegramUpdate(storeId, req.body as Record<string, unknown>, req.log);
-  } catch (err) {
+  req.log.info({ storeId, updateId }, "Telegram webhook processing");
+
+  processTelegramUpdate(storeId, body, req.log).catch((err) => {
     req.log.error({ err }, "Telegram webhook handler threw");
-  }
-  res.json({ ok: true });
+  });
 });
 
 router.post("/stores/:slug/telegram/setup", async (req, res): Promise<void> => {
