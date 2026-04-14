@@ -48,7 +48,7 @@ router.post("/telegram/webhook/:storeId", async (req, res): Promise<void> => {
     // content_hash = first 80 chars is enough to identify the message
     const contentHash = `${chatId}:${msgText.slice(0, 80)}`;
     try {
-      const result = await pool.query<{ id: number }>(`
+      const result = await pool.query(`
         WITH cleanup AS (
           DELETE FROM telegram_chat_dedup
           WHERE chat_id = $1 AND content_hash = $2
@@ -59,7 +59,7 @@ router.post("/telegram/webhook/:storeId", async (req, res): Promise<void> => {
         ON CONFLICT (chat_id, content_hash) DO NOTHING
         RETURNING ctid
       `, [chatId, contentHash]);
-      if (result.rowCount === 0) {
+      if (!result.rows.length) {
         req.log.warn({ storeId, chatId }, "Telegram: duplicate content within 30 s, skipping");
         return;
       }

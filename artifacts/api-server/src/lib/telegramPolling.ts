@@ -1,5 +1,5 @@
 import { isNotNull } from "drizzle-orm";
-import { db, storesTable, processedTelegramUpdatesTable } from "@workspace/db";
+import { db, storesTable, processedTelegramUpdatesTable, pool } from "@workspace/db";
 import type { Logger } from "pino";
 import { processTelegramUpdate } from "./telegramCore";
 
@@ -105,15 +105,37 @@ export function startTelegramPolling(logger: Logger): void {
           for (const upd of data.result) {
             offset = upd.update_id + 1;
             offsets.set(token, offset);
-            // DB-level dedup (shared with webhook path)
+
+            // Dedup layer 1: update_id
             try {
               const claimed = await db
                 .insert(processedTelegramUpdatesTable)
                 .values({ updateId: upd.update_id })
                 .onConflictDoNothing()
                 .returning();
-              if (claimed.length === 0) continue; // already handled by webhook
-            } catch { /* table not ready yet — proceed */ }
+              if (claimed.length === 0) continue;
+            } catch { /* table not ready — proceed */ }
+
+            // Dedup layer 2: content + chatId within 30 s
+            const msg = (upd as Record<string, unknown>).message as Record<string, unknown> | undefined;
+            const cId = typeof (msg?.chat as Record<string, unknown> | undefined)?.id === "number"
+              ? (msg!.chat as Record<string, unknown>).id as number : null;
+            const txt = typeof msg?.text === "string" ? msg.text : null;
+            if (cId !== null && txt !== null) {
+              const hash = `${cId}:${txt.slice(0, 80)}`;
+              try {
+                const r = await pool.query(`
+                  WITH cleanup AS (
+                    DELETE FROM telegram_chat_dedup
+                    WHERE chat_id=$1 AND content_hash=$2 AND created_at < NOW()-INTERVAL '30 seconds'
+                  )
+                  INSERT INTO telegram_chat_dedup (chat_id, content_hash)
+                  VALUES ($1,$2) ON CONFLICT (chat_id,content_hash) DO NOTHING RETURNING ctid
+                `, [cId, hash]);
+                if (!r.rows.length) continue;
+              } catch { /* proceed */ }
+            }
+
             await processTelegramUpdate(store.id, upd as Record<string, unknown>, logger);
           }
         }
