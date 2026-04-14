@@ -51,6 +51,19 @@ type StoreResult = {
   productCount: number;
 };
 
+type ProductResult = {
+  id: number;
+  name: string;
+  price: string;
+  description: string | null;
+  imageUrl: string | null;
+  inStock: boolean;
+  storeId: number;
+  storeName: string;
+  storeSlug: string;
+  currency: string;
+};
+
 export default function Home() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -77,17 +90,28 @@ export default function Home() {
     }
   }, [myStore]);
 
-  const { data: stores, isLoading: storesLoading } = useQuery({
-    queryKey: ["stores", searchQuery],
+  // Default: list recent stores. On search: use unified search endpoint.
+  const { data: recentStores, isLoading: recentLoading } = useQuery({
+    queryKey: ["stores-recent"],
     queryFn: async () => {
-      const url = searchQuery
-        ? `/api/stores?q=${encodeURIComponent(searchQuery)}&limit=12`
-        : `/api/stores?limit=12`;
-      const res = await fetch(url);
+      const res = await fetch("/api/stores?limit=12");
       if (!res.ok) throw new Error("Failed to fetch stores");
       return res.json() as Promise<StoreResult[]>;
     },
+    enabled: !searchQuery,
   });
+
+  const { data: searchResults, isLoading: searchLoading } = useQuery({
+    queryKey: ["search", searchQuery],
+    queryFn: async () => {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}&limit=8`);
+      if (!res.ok) throw new Error("Failed to search");
+      return res.json() as Promise<{ stores: StoreResult[]; products: ProductResult[] }>;
+    },
+    enabled: !!searchQuery,
+  });
+
+  const isLoading = searchQuery ? searchLoading : recentLoading;
 
   const PENDING_STORE_KEY = "qs_pending_store";
 
@@ -194,7 +218,7 @@ export default function Home() {
                 <Input
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="Search for a store..."
+                  placeholder="Search for a store or product..."
                   className="pl-9 h-11 rounded-xl"
                 />
               </div>
@@ -203,19 +227,8 @@ export default function Home() {
               </Button>
             </form>
 
-            {/* Store grid heading */}
-            <div className="mb-5">
-              {searchQuery ? (
-                <p className="text-sm font-medium text-muted-foreground">
-                  Results for <span className="text-foreground">"{searchQuery}"</span>
-                </p>
-              ) : (
-                <p className="text-sm font-medium text-muted-foreground">Recently opened stores</p>
-              )}
-            </div>
-
-            {/* Store grid */}
-            {storesLoading ? (
+            {/* Results */}
+            {isLoading ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {Array.from({ length: 6 }).map((_, i) => (
                   <div key={i} className="bg-card border rounded-2xl p-5 animate-pulse">
@@ -232,53 +245,108 @@ export default function Home() {
                   </div>
                 ))}
               </div>
-            ) : stores && stores.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {stores.map((store) => (
-                  <div key={store.slug} className="bg-card border rounded-2xl p-5 flex flex-col gap-3 hover:shadow-md transition-shadow">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
-                        {store.logoUrl ? (
-                          <img src={`/api/storage${store.logoUrl}`} alt={store.name} className="w-full h-full object-cover" />
-                        ) : (
-                          <ShoppingBag className="w-5 h-5 text-primary" />
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <h3 className="font-bold text-foreground truncate">{store.name}</h3>
-                        <p className="text-xs text-muted-foreground">{store.productCount} product{store.productCount !== 1 ? "s" : ""}</p>
-                      </div>
+            ) : searchQuery ? (
+              /* ── Search results ── */
+              <div className="space-y-8">
+                {/* Store results */}
+                {(searchResults?.stores.length ?? 0) > 0 && (
+                  <div>
+                    <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-4">Stores</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {searchResults!.stores.map(store => (
+                        <div key={store.slug} className="bg-card border rounded-2xl p-5 flex flex-col gap-3 hover:shadow-md transition-shadow">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
+                              {store.logoUrl ? <img src={`/api/storage${store.logoUrl}`} alt={store.name} className="w-full h-full object-cover" /> : <ShoppingBag className="w-5 h-5 text-primary" />}
+                            </div>
+                            <div className="min-w-0">
+                              <h3 className="font-bold text-foreground truncate">{store.name}</h3>
+                              <p className="text-xs text-muted-foreground">{store.productCount} product{store.productCount !== 1 ? "s" : ""}</p>
+                            </div>
+                          </div>
+                          {store.description && <p className="text-sm text-muted-foreground line-clamp-2">{store.description}</p>}
+                          <Link href={`/store/${store.slug}`}>
+                            <Button variant="outline" size="sm" className="w-full rounded-xl">Visit Store <ArrowRight className="w-3.5 h-3.5 ml-2" /></Button>
+                          </Link>
+                        </div>
+                      ))}
                     </div>
-                    {store.description && (
-                      <p className="text-sm text-muted-foreground line-clamp-2">{store.description}</p>
-                    )}
-                    <Link href={`/store/${store.slug}`}>
-                      <Button variant="outline" size="sm" className="w-full rounded-xl mt-auto">
-                        Visit Store <ArrowRight className="w-3.5 h-3.5 ml-2" />
-                      </Button>
-                    </Link>
                   </div>
-                ))}
+                )}
+
+                {/* Product results */}
+                {(searchResults?.products.length ?? 0) > 0 && (
+                  <div>
+                    <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-4">Products</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {searchResults!.products.map(product => (
+                        <Link key={product.id} href={`/store/${product.storeSlug}`}>
+                          <div className="bg-card border rounded-2xl overflow-hidden hover:shadow-md transition-shadow cursor-pointer">
+                            {product.imageUrl ? (
+                              <div className="aspect-video w-full bg-muted overflow-hidden">
+                                <img src={`/api/storage${product.imageUrl}`} alt={product.name} className="w-full h-full object-cover" />
+                              </div>
+                            ) : (
+                              <div className="aspect-video w-full bg-muted flex items-center justify-center">
+                                <Package className="w-8 h-8 text-muted-foreground/30" />
+                              </div>
+                            )}
+                            <div className="p-4">
+                              <div className="flex justify-between items-start gap-2 mb-1">
+                                <h3 className="font-bold text-foreground text-sm truncate">{product.name}</h3>
+                                <span className="text-primary font-bold text-sm shrink-0">{product.currency} {product.price}</span>
+                              </div>
+                              <p className="text-xs text-muted-foreground">from <span className="font-medium text-foreground">{product.storeName}</span></p>
+                            </div>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* No results */}
+                {(searchResults?.stores.length ?? 0) === 0 && (searchResults?.products.length ?? 0) === 0 && (
+                  <div className="text-center py-16 text-muted-foreground flex flex-col items-center gap-3">
+                    <Search className="w-10 h-10 opacity-30" />
+                    <p className="font-medium">No results for "{searchQuery}"</p>
+                    <p className="text-sm">Try a different search term.</p>
+                    <Button variant="outline" size="sm" className="mt-1 rounded-xl" onClick={() => { setSearchQuery(""); setSearchInput(""); }}>Clear search</Button>
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="text-center py-16 text-muted-foreground">
-                {searchQuery ? (
-                  <div className="flex flex-col items-center gap-3">
-                    <Store className="w-10 h-10 opacity-30" />
-                    <p className="font-medium">No stores found for "{searchQuery}"</p>
-                    <p className="text-sm">Try a different search term or browse all stores.</p>
-                    <Button variant="outline" size="sm" className="mt-2 rounded-xl" onClick={() => { setSearchQuery(""); setSearchInput(""); }}>
-                      Clear search
-                    </Button>
+              /* ── Default: recent stores ── */
+              <>
+                <p className="text-sm font-medium text-muted-foreground mb-5">Recently opened stores</p>
+                {recentStores && recentStores.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {recentStores.map(store => (
+                      <div key={store.slug} className="bg-card border rounded-2xl p-5 flex flex-col gap-3 hover:shadow-md transition-shadow">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
+                            {store.logoUrl ? <img src={`/api/storage${store.logoUrl}`} alt={store.name} className="w-full h-full object-cover" /> : <ShoppingBag className="w-5 h-5 text-primary" />}
+                          </div>
+                          <div className="min-w-0">
+                            <h3 className="font-bold text-foreground truncate">{store.name}</h3>
+                            <p className="text-xs text-muted-foreground">{store.productCount} product{store.productCount !== 1 ? "s" : ""}</p>
+                          </div>
+                        </div>
+                        {store.description && <p className="text-sm text-muted-foreground line-clamp-2">{store.description}</p>}
+                        <Link href={`/store/${store.slug}`}>
+                          <Button variant="outline" size="sm" className="w-full rounded-xl">Visit Store <ArrowRight className="w-3.5 h-3.5 ml-2" /></Button>
+                        </Link>
+                      </div>
+                    ))}
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center gap-3">
+                  <div className="text-center py-16 text-muted-foreground flex flex-col items-center gap-3">
                     <Package className="w-10 h-10 opacity-30" />
                     <p className="font-medium">No stores yet</p>
                     <p className="text-sm">Be the first to open your shop!</p>
                   </div>
                 )}
-              </div>
+              </>
             )}
           </div>
         </section>

@@ -15,12 +15,14 @@ if (process.env.DATABASE_URL) {
   const productsRouter = (await import("./products")).default;
   const telegramRouter = (await import("./telegram")).default;
   const ordersRouter = (await import("./orders")).default;
+  const searchRouter = (await import("./search")).default;
 
   router.use(authRouter);
   router.use(storesRouter);
   router.use(productsRouter);
   router.use(telegramRouter);
   router.use(ordersRouter);
+  router.use(searchRouter);
 }
 
 export default router;
