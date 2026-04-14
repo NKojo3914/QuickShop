@@ -557,7 +557,8 @@ export async function processTelegramUpdate(
   if (isConfirmation) {
     // Build a clean, seller-readable order summary.
 
-    // Priority 1: most recent CONFIRM_ORDER: line the AI already emitted (has negotiated price)
+    // Priority 1: most recent CONFIRM_ORDER: line already in history
+    // (happens when AI already emitted one in a previous turn)
     const confirmOrderMsg = [...history].reverse().find(
       (m) => m.role === "assistant" && m.content.includes("CONFIRM_ORDER:")
     );
@@ -566,58 +567,23 @@ export async function processTelegramUpdate(
         .split("CONFIRM_ORDER:")[1]?.trim().split("\n")[0] || "";
     }
 
-    // Priority 2: "Just to confirm — you'd like to pay GHS X for the Y?" bot message
-    // Parse it into the same item-line format as the cart summary.
+    // Priority 2: ask the AI to emit CONFIRM_ORDER now — most reliable for
+    // multi-item or negotiated orders because the AI knows each item's agreed price.
     if (!confirmedOrderSummary) {
-      const jtcMsg = [...history].reverse().find(
-        (m) => m.role === "assistant" && m.content.toLowerCase().startsWith("just to confirm")
-      );
-      if (jtcMsg) {
-        const match = jtcMsg.content.match(/pay\s+((?:GHS|USD|EUR|GBP|NGN|KES|XOF|ZAR)?\s*[\d,]+(?:\.\d+)?)\s+for\s+(?:the\s+)?(.+?)[\?\.]*$/i);
-        if (match) {
-          const price = match[1].trim();
-          const item = match[2].trim();
-          confirmedOrderSummary = `• ${item} x1 — ${price}\nTotal: ${price}`;
-        } else {
-          confirmedOrderSummary = jtcMsg.content.replace(/\*/g, "").trim();
+      const confirmHistory = history.filter((m) => m.role !== "system").slice(-14);
+      try {
+        const aiConfirmResponse = await callAI(
+          systemPrompt,
+          `The customer has agreed. Output the CONFIRM_ORDER line now with all items and their agreed prices, then a brief confirmation message.`,
+          confirmHistory,
+        );
+        if (aiConfirmResponse.includes("CONFIRM_ORDER:")) {
+          confirmedOrderSummary = aiConfirmResponse.split("CONFIRM_ORDER:")[1]?.trim().split("\n")[0] || "";
         }
-      }
+      } catch { /* fall through */ }
     }
 
-    // Priority 3: last bot negotiation message — extract settled price and combine
-    // with item names from the cart greeting (handles "I can do GHS 1450, take it?")
-    if (!confirmedOrderSummary) {
-      const currency = store.currency || "GHS";
-      const priceRe = new RegExp(`\\b${currency}\\s*([\\d,]+(?:\\.\\d+)?)`, "i");
-      const markerPrefixes = ["ORDER_AWAITING_PHONE:", "ORDER_PLACED:", "CONFIRM_ORDER:"];
-      const lastNegMsg = [...history].reverse().find(
-        (m) =>
-          m.role === "assistant" &&
-          priceRe.test(m.content) &&
-          !markerPrefixes.some((p) => m.content.startsWith(p)) &&
-          !m.content.includes("Here's your cart")
-      );
-      const cartMsg = [...history].find(
-        (m) => m.role === "assistant" && m.content.includes("Here's your cart")
-      );
-      if (lastNegMsg && cartMsg) {
-        // Use the LAST price in the message — the bot's final offer, not the listed price
-        const allPriceMatches = [...lastNegMsg.content.matchAll(new RegExp(`\\b${currency}\\s*([\\d,]+(?:\\.\\d+)?)`, "gi"))];
-        const lastPriceMatch = allPriceMatches[allPriceMatches.length - 1];
-        const settledPrice = lastPriceMatch ? `${currency} ${lastPriceMatch[1]}` : null;
-        const itemLines = cleanSummary(cartMsg.content)
-          .split("\n")
-          .filter((l) => l.startsWith("•"));
-        if (settledPrice && itemLines.length > 0) {
-          // Replace the price on each item line with the settled price,
-          // then recalculate the total.
-          const updatedLines = itemLines.map((l) => l.replace(/GHS\s*[\d,]+(?:\.\d+)?/i, settledPrice));
-          confirmedOrderSummary = `${updatedLines.join("\n")}\nTotal: ${settledPrice}`;
-        }
-      }
-    }
-
-    // Priority 4: cart greeting at listed price (no negotiation took place)
+    // Priority 3: cart greeting at listed price (no negotiation took place)
     if (!confirmedOrderSummary) {
       const cartMsg = [...history].reverse().find(
         (m) => m.role === "assistant" && m.content.includes("Here's your cart")
