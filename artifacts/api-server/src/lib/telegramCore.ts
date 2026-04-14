@@ -192,11 +192,13 @@ async function searchWeb(query: string): Promise<string> {
 
 async function getOrCreateConversation(storeId: number, telegramChatId: number): Promise<number> {
   const prefix = `telegram-${telegramChatId}-store-${storeId}`;
-  // Match both the legacy exact title and the new timestamped variant; pick the most recent.
+  // Match EITHER the legacy exact title OR the new timestamped variant (which always has
+  // a "-" separator after the storeId). Using "prefix-%" avoids false matches when one
+  // storeId is a numeric prefix of another (e.g. store-9 vs store-99).
   const existing = await db
     .select()
     .from(conversations)
-    .where(sql`${conversations.title} LIKE ${prefix + "%"}`)
+    .where(sql`${conversations.title} = ${prefix} OR ${conversations.title} LIKE ${prefix + "-%"}`)
     .orderBy(desc(conversations.createdAt))
     .limit(1);
   if (existing.length > 0) return existing[0].id;
@@ -215,12 +217,15 @@ async function createFreshConversation(storeId: number, telegramChatId: number):
 }
 
 async function getConversationHistory(conversationId: number): Promise<MessageRow[]> {
-  return db
+  // Fetch the 6 MOST RECENT messages (newest first), then reverse so the AI
+  // receives them in chronological (oldest-first) order.
+  const rows = await db
     .select()
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
-    .orderBy(messages.createdAt)
-    .limit(6); // Keep last 3 exchanges — enough context, stays under token limits
+    .orderBy(desc(messages.createdAt))
+    .limit(6);
+  return rows.reverse();
 }
 
 function buildSystemPrompt(
@@ -383,19 +388,27 @@ export async function processTelegramUpdate(
     !orderAlreadyPlaced &&
     !reversedHistory.slice(0, awaitingPhoneIdx).some((m) => m.role === "user");
 
-  // Also reject inputs that look like confirmations rather than phone numbers
-  const looksLikePhone = /\d/.test(userText) && !confirmationPhrases.some((p) => lowerText.includes(p));
+  // Also reject inputs that look like confirmations rather than phone numbers.
+  // Require at least 7 digits so "yes12" or "go ahead3" can't be captured as a phone.
+  const digitCount = (userText.match(/\d/g) || []).length;
+  const looksLikePhone = digitCount >= 7 && !confirmationPhrases.some((p) => lowerText.includes(p));
 
   if (validAwaitingPhone) {
+    const pendingSummary = awaitingPhoneMsg!.content.slice("ORDER_AWAITING_PHONE:".length).trim();
+
     if (!looksLikePhone) {
-      // User replied with a confirmation phrase instead of a phone number — re-ask.
+      // User replied with something that isn't a phone number — re-ask and PRESERVE the
+      // ORDER_AWAITING_PHONE marker so the NEXT message still triggers the phone handler.
       const reAsk = `📞 Please share your phone number (e.g. 0241234567) so the seller can reach you to arrange delivery.`;
-      await db.insert(messages).values({ conversationId, role: "user", content: userText });
+      await db.insert(messages).values([
+        { conversationId, role: "user", content: userText },
+        { conversationId, role: "assistant", content: `ORDER_AWAITING_PHONE: ${pendingSummary}` },
+        { conversationId, role: "assistant", content: reAsk },
+      ]);
       await sendTelegramMessage(store.telegramBotToken, chatId, reAsk);
       return;
     }
 
-    const pendingSummary = awaitingPhoneMsg!.content.slice("ORDER_AWAITING_PHONE:".length).trim();
     const customerPhone = userText.replace(/\s+/g, "").slice(0, 30);
 
     const [newOrder] = await db.insert(ordersTable).values({
