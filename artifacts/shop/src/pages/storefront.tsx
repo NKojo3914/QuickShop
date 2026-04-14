@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useRoute } from "wouter";
 import {
   Store,
@@ -8,6 +8,8 @@ import {
   Plus,
   Check,
   PackageX,
+  Search,
+  X,
 } from "lucide-react";
 import {
   useGetStoreBySlug,
@@ -19,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
 import { useCart } from "@/hooks/use-cart";
 import { CartDrawer } from "@/components/CartDrawer";
 
@@ -37,6 +40,16 @@ export default function Storefront() {
   const { items, addItem, removeItem, updateQuantity, clearCart, totalItems } = useCart(slug);
   const [cartOpen, setCartOpen] = useState(false);
   const [addedIds, setAddedIds] = useState<Set<number>>(new Set());
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredProducts = useMemo(() => {
+    if (!searchQuery.trim()) return products;
+    const q = searchQuery.toLowerCase();
+    return products?.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      (p.description ?? "").toLowerCase().includes(q)
+    );
+  }, [products, searchQuery]);
 
   type ProductRow = NonNullable<typeof products>[number];
   const handleAddToCart = (product: ProductRow) => {
@@ -134,6 +147,27 @@ export default function Storefront() {
 
       {/* Products */}
       <div className="container mx-auto px-4 py-12 max-w-5xl">
+        {/* Search bar */}
+        {!isProductsLoading && (products?.length ?? 0) > 0 && (
+          <div className="relative max-w-sm mb-8">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            <Input
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search products..."
+              className="pl-9 pr-9 rounded-xl"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        )}
+
         {isProductsLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
             {[1, 2, 3].map(i => <Skeleton key={i} className="h-96 rounded-3xl" />)}
@@ -143,9 +177,15 @@ export default function Storefront() {
             <h3 className="text-xl font-medium text-foreground mb-2">No products yet</h3>
             <p className="text-muted-foreground">This store hasn't added any products yet.</p>
           </div>
+        ) : filteredProducts?.length === 0 ? (
+          <div className="text-center py-20">
+            <Search className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+            <h3 className="text-lg font-medium text-foreground mb-1">No products match "{searchQuery}"</h3>
+            <button onClick={() => setSearchQuery("")} className="text-sm text-primary underline underline-offset-4">Clear search</button>
+          </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-8 sm:gap-x-8 sm:gap-y-12">
-            {products?.map(product => {
+            {filteredProducts?.map(product => {
               const inCart = items.find(i => i.id === product.id);
               const justAdded = addedIds.has(product.id);
               const outOfStock = product.inStock === false;
