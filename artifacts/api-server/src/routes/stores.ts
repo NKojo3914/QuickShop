@@ -39,6 +39,31 @@ router.post("/stores", requireAuth, async (req, res): Promise<void> => {
   res.status(201).json(GetStoreBySlugResponse.parse(store));
 });
 
+// GET /stores?q=search&limit=12
+router.get("/stores", async (req, res): Promise<void> => {
+  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  const limit = Math.min(parseInt(typeof req.query.limit === "string" ? req.query.limit : "12", 10) || 12, 48);
+
+  const stores = await db
+    .select({
+      id: storesTable.id,
+      name: storesTable.name,
+      slug: storesTable.slug,
+      description: storesTable.description,
+      logoUrl: storesTable.logoUrl,
+      currency: storesTable.currency,
+      productCount: sql<number>`count(${productsTable.id})::int`,
+    })
+    .from(storesTable)
+    .leftJoin(productsTable, eq(productsTable.storeId, storesTable.id))
+    .where(q ? sql`lower(${storesTable.name}) like ${'%' + q.toLowerCase() + '%'} or lower(${storesTable.slug}) like ${'%' + q.toLowerCase() + '%'}` : sql`1=1`)
+    .groupBy(storesTable.id)
+    .orderBy(sql`${storesTable.createdAt} desc`)
+    .limit(limit);
+
+  res.json(stores);
+});
+
 router.get("/stores/:slug", async (req, res): Promise<void> => {
   const params = GetStoreBySlugParams.safeParse(req.params);
   if (!params.success) {

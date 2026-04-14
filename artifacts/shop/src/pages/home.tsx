@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, Link } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -6,14 +6,10 @@ import { z } from "zod";
 import {
   ShoppingBag,
   ArrowRight,
-  MessageCircle,
-  Zap,
-  Star,
-  Package,
-  Send,
-  Check,
+  Search,
   Store,
-  Smartphone,
+  Package,
+  Check,
 } from "lucide-react";
 import { useCreateStore } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
@@ -45,64 +41,24 @@ const createStoreSchema = z.object({
 
 type CreateStoreFormValues = z.infer<typeof createStoreSchema>;
 
-const FEATURES = [
-  {
-    icon: Zap,
-    title: "Open in 60 seconds",
-    description: "Pick a name, add your number, and your shop is live. No tech skills needed.",
-  },
-  {
-    icon: MessageCircle,
-    title: "Orders on WhatsApp",
-    description: "Customers tap one button and their order lands straight in your WhatsApp.",
-  },
-  {
-    icon: Send,
-    title: "Telegram AI Bot",
-    description: "An AI assistant handles questions, negotiates prices, and confirms orders 24/7.",
-  },
-  {
-    icon: Package,
-    title: "Manage with ease",
-    description: "Add products, upload photos, mark items out of stock — all from your dashboard.",
-  },
-];
-
-const STEPS = [
-  {
-    number: "01",
-    title: "Create your stall",
-    description: "Give your shop a name and a link. Takes under a minute.",
-  },
-  {
-    number: "02",
-    title: "Add your goods",
-    description: "Upload photos, write descriptions, set your prices.",
-  },
-  {
-    number: "03",
-    title: "Share your link",
-    description: "Print the QR code or share the link on WhatsApp and Instagram.",
-  },
-  {
-    number: "04",
-    title: "Get orders",
-    description: "Customers browse and send their order directly to your WhatsApp.",
-  },
-];
-
-// Static storefront mockup data
-const MOCK_PRODUCTS = [
-  { name: "Sourdough Loaf", price: "25.00", emoji: "🍞" },
-  { name: "Chin Chin (500g)", price: "15.00", emoji: "🫙" },
-  { name: "Meat Pie (x6)", price: "30.00", emoji: "🥧" },
-];
+type StoreResult = {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  logoUrl: string | null;
+  currency: string;
+  productCount: number;
+};
 
 export default function Home() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { isAuthenticated } = useAuth();
   const createStoreMutation = useCreateStore();
+
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: myStore } = useQuery({
     queryKey: ["my-store"],
@@ -121,6 +77,18 @@ export default function Home() {
     }
   }, [myStore]);
 
+  const { data: stores, isLoading: storesLoading } = useQuery({
+    queryKey: ["stores", searchQuery],
+    queryFn: async () => {
+      const url = searchQuery
+        ? `/api/stores?q=${encodeURIComponent(searchQuery)}&limit=12`
+        : `/api/stores?limit=12`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Failed to fetch stores");
+      return res.json() as Promise<StoreResult[]>;
+    },
+  });
+
   const PENDING_STORE_KEY = "qs_pending_store";
 
   const form = useForm<CreateStoreFormValues>({
@@ -138,7 +106,6 @@ export default function Home() {
 
   function onSubmit(data: CreateStoreFormValues) {
     if (!isAuthenticated) {
-      // Save form data so the user doesn't lose it after registering/logging in
       try { sessionStorage.setItem(PENDING_STORE_KEY, JSON.stringify(data)); } catch { /* ignore */ }
       setLocation("/register");
       return;
@@ -165,6 +132,11 @@ export default function Home() {
     );
   }
 
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    setSearchQuery(searchInput.trim());
+  }
+
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background">
       {/* Nav */}
@@ -189,7 +161,7 @@ export default function Home() {
 
       <main className="flex-1">
 
-        {/* ── Hero ── */}
+        {/* ── Section 1: Hero / Store Finder ── */}
         <section className="relative overflow-hidden bg-card border-b">
           {/* subtle grid pattern */}
           <div
@@ -200,197 +172,170 @@ export default function Home() {
             }}
           />
 
-          <div className="container mx-auto px-4 max-w-6xl py-20 md:py-28 relative">
-            <div className="flex flex-col lg:flex-row items-center gap-8 lg:gap-16">
+          <div className="container mx-auto px-4 max-w-6xl py-16 md:py-20 relative">
+            {/* Headline */}
+            <div className="text-center mb-10">
+              <Badge variant="secondary" className="mb-5 rounded-full px-4 py-1 text-xs font-medium">
+                🇬🇭 Built for Ghanaian sellers
+              </Badge>
+              <h1 className="text-4xl sm:text-5xl md:text-6xl font-serif font-bold text-foreground leading-[1.1] mb-4">
+                Find a shop,{" "}
+                <span className="text-primary">or open your own.</span>
+              </h1>
+              <p className="text-lg md:text-xl text-muted-foreground max-w-lg mx-auto leading-relaxed">
+                Browse stores from Ghanaian sellers or set up yours in 60 seconds.
+              </p>
+            </div>
 
-              {/* Left copy */}
-              <div className="flex-1 text-center lg:text-left">
-                <Badge variant="secondary" className="mb-6 rounded-full px-4 py-1 text-xs font-medium">
-                  🇬🇭 Built for Ghanaian sellers
-                </Badge>
-                <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-serif font-bold text-foreground leading-[1.1] mb-6">
-                  Your market stall,{" "}
-                  <span className="text-primary">now online.</span>
-                </h1>
-                <p className="text-lg md:text-xl text-muted-foreground mb-10 max-w-lg mx-auto lg:mx-0 leading-relaxed">
-                  Set up a beautiful shop in under a minute. Customers browse your products and order directly on WhatsApp — no app, no hassle.
+            {/* Search bar */}
+            <form onSubmit={handleSearch} className="flex gap-2 max-w-xl mx-auto mb-10">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  placeholder="Search for a store..."
+                  className="pl-9 h-11 rounded-xl"
+                />
+              </div>
+              <Button type="submit" className="h-11 px-5 rounded-xl shrink-0">
+                Search
+              </Button>
+            </form>
+
+            {/* Store grid heading */}
+            <div className="mb-5">
+              {searchQuery ? (
+                <p className="text-sm font-medium text-muted-foreground">
+                  Results for <span className="text-foreground">"{searchQuery}"</span>
                 </p>
-                <div className="flex flex-col sm:flex-row gap-3 justify-center lg:justify-start">
-                  <Button size="lg" className="rounded-full px-8 h-12 text-base" asChild>
-                    <a href="#create">
-                      Open Your Shop Free <ArrowRight className="ml-2 w-4 h-4" />
-                    </a>
-                  </Button>
-                </div>
-
-                {/* Social proof */}
-                <div className="mt-10 flex items-center gap-3 justify-center lg:justify-start">
-                  <div className="flex -space-x-2">
-                    {["K", "A", "E", "B"].map((initial, i) => (
-                      <div
-                        key={i}
-                        className="w-8 h-8 rounded-full border-2 border-background bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold"
-                      >
-                        {initial}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    <span className="text-foreground font-semibold">200+ sellers</span> already selling on QuickShop
-                  </div>
-                </div>
-              </div>
-
-              {/* Right — phone mockup */}
-              <div className="flex-1 flex justify-center lg:justify-end">
-                <div className="relative">
-                  {/* Phone shell */}
-                  <div className="w-64 bg-card rounded-[2.5rem] border-[6px] border-foreground/10 shadow-2xl overflow-hidden">
-                    {/* Status bar */}
-                    <div className="bg-muted/50 px-5 pt-3 pb-2 flex items-center justify-between">
-                      <span className="text-[10px] text-muted-foreground font-medium">9:41</span>
-                      <div className="w-20 h-4 bg-foreground/10 rounded-full" />
-                      <div className="flex gap-1">
-                        <div className="w-3 h-2 bg-foreground/20 rounded-sm" />
-                        <div className="w-2 h-2 bg-foreground/20 rounded-full" />
-                      </div>
-                    </div>
-
-                    {/* Store header */}
-                    <div className="bg-primary/5 px-4 py-4 text-center border-b">
-                      <div className="w-10 h-10 rounded-xl bg-primary text-primary-foreground flex items-center justify-center mx-auto mb-2">
-                        <ShoppingBag className="w-5 h-5" />
-                      </div>
-                      <p className="font-serif font-bold text-sm text-foreground">Mama's Bakery</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">Fresh baked every morning 🥐</p>
-                    </div>
-
-                    {/* Products */}
-                    <div className="px-3 py-3 space-y-2 bg-background">
-                      {MOCK_PRODUCTS.map((p) => (
-                        <div key={p.name} className="flex items-center gap-2 bg-card rounded-xl p-2.5 border">
-                          <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-lg shrink-0">
-                            {p.emoji}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold text-foreground truncate">{p.name}</p>
-                            <p className="text-xs text-primary font-bold">GHS {p.price}</p>
-                          </div>
-                          <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center shrink-0">
-                            <MessageCircle className="w-3 h-3 text-primary-foreground" />
-                          </div>
-                        </div>
-                      ))}
-
-                      {/* Order button */}
-                      <div className="pt-1 pb-1">
-                        <div className="w-full h-8 rounded-xl bg-[#25D366] flex items-center justify-center gap-1.5">
-                          <MessageCircle className="w-3.5 h-3.5 text-white" />
-                          <span className="text-white text-[11px] font-semibold">Order via WhatsApp</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Floating badges */}
-                  <div className="absolute -right-6 top-16 bg-card border rounded-2xl px-3 py-2 shadow-lg text-xs font-medium flex items-center gap-1.5">
-                    <div className="w-2 h-2 rounded-full bg-green-500" />
-                    Order received!
-                  </div>
-                  <div className="absolute -left-8 bottom-20 bg-card border rounded-2xl px-3 py-2 shadow-lg text-xs font-medium flex items-center gap-1.5">
-                    <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
-                    Live in 60 secs
-                  </div>
-                </div>
-              </div>
+              ) : (
+                <p className="text-sm font-medium text-muted-foreground">Recently opened stores</p>
+              )}
             </div>
+
+            {/* Store grid */}
+            {storesLoading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="bg-card border rounded-2xl p-5 animate-pulse">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-10 h-10 rounded-xl bg-muted shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 bg-muted rounded w-3/4" />
+                        <div className="h-3 bg-muted rounded w-1/3" />
+                      </div>
+                    </div>
+                    <div className="h-3 bg-muted rounded w-full mb-2" />
+                    <div className="h-3 bg-muted rounded w-2/3 mb-4" />
+                    <div className="h-8 bg-muted rounded-xl w-full" />
+                  </div>
+                ))}
+              </div>
+            ) : stores && stores.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {stores.map((store) => (
+                  <div key={store.slug} className="bg-card border rounded-2xl p-5 flex flex-col gap-3 hover:shadow-md transition-shadow">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
+                        {store.logoUrl ? (
+                          <img src={`/api/storage${store.logoUrl}`} alt={store.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <ShoppingBag className="w-5 h-5 text-primary" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="font-bold text-foreground truncate">{store.name}</h3>
+                        <p className="text-xs text-muted-foreground">{store.productCount} product{store.productCount !== 1 ? "s" : ""}</p>
+                      </div>
+                    </div>
+                    {store.description && (
+                      <p className="text-sm text-muted-foreground line-clamp-2">{store.description}</p>
+                    )}
+                    <Link href={`/store/${store.slug}`}>
+                      <Button variant="outline" size="sm" className="w-full rounded-xl mt-auto">
+                        Visit Store <ArrowRight className="w-3.5 h-3.5 ml-2" />
+                      </Button>
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-16 text-muted-foreground">
+                {searchQuery ? (
+                  <div className="flex flex-col items-center gap-3">
+                    <Store className="w-10 h-10 opacity-30" />
+                    <p className="font-medium">No stores found for "{searchQuery}"</p>
+                    <p className="text-sm">Try a different search term or browse all stores.</p>
+                    <Button variant="outline" size="sm" className="mt-2 rounded-xl" onClick={() => { setSearchQuery(""); setSearchInput(""); }}>
+                      Clear search
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-3">
+                    <Package className="w-10 h-10 opacity-30" />
+                    <p className="font-medium">No stores yet</p>
+                    <p className="text-sm">Be the first to open your shop!</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </section>
 
-        {/* ── How it works ── */}
-        <section className="py-20 md:py-24 border-b">
-          <div className="container mx-auto px-4 max-w-6xl">
-            <div className="text-center mb-14">
-              <Badge variant="secondary" className="mb-4 rounded-full px-4 py-1 text-xs">How it works</Badge>
-              <h2 className="text-3xl md:text-4xl font-serif font-bold text-foreground">
-                From zero to selling in 4 steps
-              </h2>
+        {/* ── Section 2: Seller CTA ── */}
+        <section className="py-16 md:py-20 bg-muted/40 border-b">
+          <div className="container mx-auto px-4 max-w-3xl text-center">
+            <Badge variant="secondary" className="mb-5 rounded-full px-4 py-1 text-xs">Free to start</Badge>
+            <h2 className="text-3xl md:text-4xl font-serif font-bold text-foreground mb-4">
+              Are you a seller?
+            </h2>
+            <p className="text-muted-foreground mb-8 text-lg leading-relaxed max-w-md mx-auto">
+              Open your online stall in under 60 seconds. No tech skills needed.
+            </p>
+
+            <div className="flex flex-col sm:flex-row gap-3 justify-center mb-10">
+              <Button size="lg" className="rounded-full px-8 h-12 text-base" asChild>
+                <a href="#create">
+                  Create My Store <ArrowRight className="ml-2 w-4 h-4" />
+                </a>
+              </Button>
+              <Button size="lg" variant="outline" className="rounded-full px-8 h-12 text-base" asChild>
+                <Link href="/login">Log In</Link>
+              </Button>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {STEPS.map((step, i) => (
-                <div key={step.number} className="relative">
-                  {i < STEPS.length - 1 && (
-                    <div className="hidden lg:block absolute top-7 left-[60%] w-full h-px bg-border z-0" />
-                  )}
-                  <div className="relative z-10 bg-card border rounded-3xl p-6 h-full">
-                    <span className="text-4xl font-serif font-bold text-primary/20 block mb-4">{step.number}</span>
-                    <h3 className="font-bold text-foreground mb-2">{step.title}</h3>
-                    <p className="text-sm text-muted-foreground leading-relaxed">{step.description}</p>
+
+            <ul className="inline-flex flex-col items-start gap-2.5 text-sm text-muted-foreground">
+              {[
+                "Your own link to share anywhere",
+                "Orders straight to your WhatsApp",
+                "AI Telegram bot available",
+                "Upload product photos",
+                "Free QR code to print",
+              ].map((item) => (
+                <li key={item} className="flex items-center gap-2.5">
+                  <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <Check className="w-3 h-3 text-primary" />
                   </div>
-                </div>
+                  {item}
+                </li>
               ))}
-            </div>
+            </ul>
           </div>
         </section>
 
-        {/* ── Features ── */}
-        <section className="py-20 md:py-24 bg-muted/30 border-b">
-          <div className="container mx-auto px-4 max-w-6xl">
-            <div className="text-center mb-14">
-              <Badge variant="secondary" className="mb-4 rounded-full px-4 py-1 text-xs">Everything you need</Badge>
-              <h2 className="text-3xl md:text-4xl font-serif font-bold text-foreground">
-                Built for the way you sell
-              </h2>
-              <p className="text-muted-foreground mt-3 max-w-md mx-auto">
-                No complicated setup. No monthly fees to start. Just you, your products, and your customers.
-              </p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              {FEATURES.map((f) => (
-                <div key={f.title} className="bg-card border rounded-3xl p-7 flex gap-5 items-start">
-                  <div className="bg-primary/10 text-primary p-3 rounded-2xl shrink-0">
-                    <f.icon className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-foreground mb-1">{f.title}</h3>
-                    <p className="text-sm text-muted-foreground leading-relaxed">{f.description}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* ── Testimonial strip ── */}
-        <section className="py-14 border-b bg-primary text-primary-foreground">
-          <div className="container mx-auto px-4 max-w-6xl">
-            <div className="flex flex-col md:flex-row items-center justify-between gap-8 text-center md:text-left">
-              <p className="text-2xl md:text-3xl font-serif font-bold max-w-xl leading-snug">
-                "I set up my shop in 5 minutes. Now I get orders on WhatsApp while I'm at the market."
-              </p>
-              <div className="shrink-0">
-                <div className="w-14 h-14 rounded-full bg-primary-foreground/20 flex items-center justify-center text-2xl font-bold mb-2 mx-auto md:mx-0">
-                  A
-                </div>
-                <p className="font-semibold text-sm">Akosua M.</p>
-                <p className="text-primary-foreground/70 text-xs">Fabric seller, Kumasi</p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ── Create store form ── */}
-        <section id="create" className="py-20 md:py-28 bg-muted/30">
-          <div className="container mx-auto px-4 max-w-6xl">
+        {/* ── Section 3: Create store form ── */}
+        <section id="create" className="py-16 md:py-20 bg-background">
+          <div className="container mx-auto px-4 max-w-5xl">
             <div className="flex flex-col lg:flex-row gap-8 lg:gap-16 items-start">
 
               {/* Left copy */}
               <div className="flex-1 lg:sticky lg:top-24">
-                <Badge variant="secondary" className="mb-4 rounded-full px-4 py-1 text-xs">Free to start</Badge>
-                <h2 className="text-4xl md:text-5xl font-serif font-bold text-foreground mb-5 leading-tight">
+                <Badge variant="secondary" className="mb-4 rounded-full px-4 py-1 text-xs">Open your store</Badge>
+                <h2 className="text-3xl md:text-4xl font-serif font-bold text-foreground mb-4 leading-tight">
                   Open your shop today
                 </h2>
-                <p className="text-muted-foreground mb-8 text-lg leading-relaxed">
+                <p className="text-muted-foreground mb-6 leading-relaxed">
                   It takes less than a minute. No credit card, no downloads, no complicated setup.
                 </p>
                 <ul className="space-y-3">
