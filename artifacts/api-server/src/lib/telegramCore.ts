@@ -514,34 +514,43 @@ export async function processTelegramUpdate(
 
     const customerPhone = userText.replace(/\s+/g, "").slice(0, 30);
 
-    const [newOrder] = await db.insert(ordersTable).values({
-      storeId,
-      customerName,
-      customerPhone,
-      customerTelegramChatId: chatId,
-      summary: pendingSummary,
-      status: "pending",
-    }).returning();
+    try {
+      const [newOrder] = await db.insert(ordersTable).values({
+        storeId,
+        customerName,
+        customerPhone,
+        customerTelegramChatId: chatId,
+        summary: pendingSummary,
+        status: "pending",
+      }).returning();
 
-    const ref = `QS-${String(newOrder.id).padStart(4, "0")}`;
-    assistantResponse = `✅ Order *${ref}* confirmed, ${firstName || "my friend"}! The seller will contact you on *${customerPhone}* to arrange payment and delivery. Thank you for shopping with *${store.name}*! 🛍️`;
+      const ref = `QS-${String(newOrder.id).padStart(4, "0")}`;
+      assistantResponse = `✅ Order *${ref}* confirmed, ${firstName || "my friend"}! The seller will contact you on *${customerPhone}* to arrange payment and delivery. Thank you for shopping with *${store.name}*! 🛍️`;
 
-    await db.insert(messages).values([
-      { conversationId, role: "user", content: userText },
-      { conversationId, role: "assistant", content: `ORDER_PLACED: ${pendingSummary}` },
-      { conversationId, role: "assistant", content: assistantResponse },
-    ]);
+      await db.insert(messages).values([
+        { conversationId, role: "user", content: userText },
+        { conversationId, role: "assistant", content: `ORDER_PLACED: ${pendingSummary}` },
+        { conversationId, role: "assistant", content: assistantResponse },
+      ]);
 
-    if (store.sellerTelegramChatId && store.telegramBotToken) {
-      const orderTime = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+      if (store.sellerTelegramChatId && store.telegramBotToken) {
+        const orderTime = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+        await sendTelegramMessage(
+          store.telegramBotToken,
+          store.sellerTelegramChatId,
+          `🛒 *New Order ${ref}*\n\n👤 *Customer:* ${customerName}\n📞 *Phone:* ${customerPhone}\n📦 *Order:* ${pendingSummary}\n🕐 *Time:* ${orderTime}\n\nOpen your dashboard to confirm.`,
+        );
+      }
+
+      await sendTelegramMessage(store.telegramBotToken, chatId, assistantResponse);
+    } catch (err) {
+      log.error({ err }, "Failed to place order from phone handler");
       await sendTelegramMessage(
         store.telegramBotToken,
-        store.sellerTelegramChatId,
-        `🛒 *New Order ${ref}*\n\n👤 *Customer:* ${customerName}\n📞 *Phone:* ${customerPhone}\n📦 *Order:* ${pendingSummary}\n🕐 *Time:* ${orderTime}\n\nOpen your dashboard to confirm.`,
+        chatId,
+        `Sorry, something went wrong placing your order. Please try again or contact the seller directly.`,
       );
     }
-
-    await sendTelegramMessage(store.telegramBotToken, chatId, assistantResponse);
     return;
   }
 
@@ -592,8 +601,10 @@ export async function processTelegramUpdate(
         (m) => m.role === "assistant" && m.content.includes("Here's your cart")
       );
       if (lastNegMsg && cartMsg) {
-        const priceMatch = lastNegMsg.content.match(priceRe);
-        const settledPrice = priceMatch ? `${currency} ${priceMatch[1]}` : null;
+        // Use the LAST price in the message — the bot's final offer, not the listed price
+        const allPriceMatches = [...lastNegMsg.content.matchAll(new RegExp(`\\b${currency}\\s*([\\d,]+(?:\\.\\d+)?)`, "gi"))];
+        const lastPriceMatch = allPriceMatches[allPriceMatches.length - 1];
+        const settledPrice = lastPriceMatch ? `${currency} ${lastPriceMatch[1]}` : null;
         const itemLines = cleanSummary(cartMsg.content)
           .split("\n")
           .filter((l) => l.startsWith("•"));
