@@ -448,9 +448,13 @@ export async function processTelegramUpdate(
     )
   );
 
-  // Word-boundary check: catches "okay, confirm", "yes!", "ok sure" etc.
+  // Normalize repeated characters so "yesss"→"yes", "yeahhh"→"yeah", "okayyyy"→"okay"
+  const normalizedText = lowerText.replace(/(.)\1+/g, "$1");
+
+  // Word-boundary check on both raw and normalized text
   const containsConfirmWord = confirmationWords.some((w) =>
-    new RegExp(`\\b${w}\\b`).test(lowerText)
+    new RegExp(`\\b${w}\\b`).test(lowerText) ||
+    new RegExp(`\\b${w}\\b`).test(normalizedText)
   );
 
   const isConfirmation = !orderAlreadyPlaced && (
