@@ -400,8 +400,11 @@ export async function processTelegramUpdate(
   ];
   const lowerText = userText.toLowerCase();
 
-  // Don't re-confirm if an order was already placed in this conversation
-  const orderAlreadyPlaced = history.some((m) => m.role === "assistant" && m.content.startsWith("ORDER_PLACED:"));
+  // Only treat an order as already placed if it happened in the CURRENT session
+  // (i.e. after a SESSION_START marker). Without this, old ORDER_PLACED markers
+  // from previous test sessions block all new confirmations indefinitely.
+  const hasSessionStart = history.some((m) => m.role === "system" && m.content.startsWith("SESSION_START:"));
+  const orderAlreadyPlaced = hasSessionStart && history.some((m) => m.role === "assistant" && m.content.startsWith("ORDER_PLACED:"));
 
   const isConfirmation = !orderAlreadyPlaced && (
     confirmationPhrases.some((p) => lowerText.includes(p))
@@ -527,7 +530,9 @@ export async function processTelegramUpdate(
     const errMsg = err instanceof Error ? err.message : String(err);
     log.error({ err, errMsg }, "AI error in Telegram handler");
 
-    // Graceful fallback — show product list + WhatsApp link
+    // Graceful fallback — show product list + WhatsApp link.
+    // Also nudge the customer: they can still type "confirm my order" to
+    // place an order without needing the AI to be available.
     const lines = products
       .filter((p) => p.inStock)
       .slice(0, 12)
@@ -539,7 +544,7 @@ export async function processTelegramUpdate(
       store.telegramBotToken,
       chatId,
       lines
-        ? `Hi ${firstName || "there"}! 👋 Here's what we have at *${store.name}*:\n\n${lines}${waLink}`
+        ? `Hi ${firstName || "there"}! 👋 Here's what we have at *${store.name}*:\n\n${lines}\n\nReply *"confirm my order"* to place your order, or${waLink.replace("\n\n", " ")} to order via WhatsApp.`
         : `Hi! Welcome to *${store.name}*. Our AI assistant is temporarily unavailable.${waLink}`,
     );
     return;
