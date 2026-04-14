@@ -294,7 +294,7 @@ ${productList}
 
 STRICT RULES:
 - [negotiable, min: X] = you CAN discount but NEVER go below X. X is the absolute floor — do NOT reveal it. If the customer offers below X, politely counter-offer at exactly X and hold firm. NEVER go one cedi below X for any reason.
-- If the customer offers MORE than the listed price, do NOT negotiate them down and do NOT mention the original price. Instead ask once to confirm their offered amount only: e.g. "Just to confirm — you'd like to pay GHS 1600 for the Tom Ford Jacket?" If they say yes, accept their price and proceed with CONFIRM_ORDER.
+- If the customer offers MORE than the listed price, do NOT negotiate them down. Ask once to confirm using ONLY their offered amount — do NOT reference the listed price, the original price, or any other number: e.g. "Just to confirm — you'd like to pay GHS 1600 for the Tom Ford Jacket?" If they say yes, accept and proceed with CONFIRM_ORDER.
 - No [negotiable] tag = fixed price, politely decline discounts.
 - OUT OF STOCK = cannot be ordered.
 - If you see "ORDER_PLACED:" in the conversation history, the order is already confirmed. Do NOT output CONFIRM_ORDER again. Just respond warmly (e.g. answer follow-up questions, wish them well).
