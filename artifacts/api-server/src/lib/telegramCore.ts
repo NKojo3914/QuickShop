@@ -1,4 +1,4 @@
-import { eq, sql, desc } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { db, storesTable, productsTable, conversations, messages, ordersTable } from "@workspace/db";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
@@ -190,42 +190,70 @@ async function searchWeb(query: string): Promise<string> {
   }
 }
 
-async function getOrCreateConversation(storeId: number, telegramChatId: number): Promise<number> {
-  const prefix = `telegram-${telegramChatId}-store-${storeId}`;
-  // Match EITHER the legacy exact title OR the new timestamped variant (which always has
-  // a "-" separator after the storeId). Using "prefix-%" avoids false matches when one
-  // storeId is a numeric prefix of another (e.g. store-9 vs store-99).
-  const existing = await db
-    .select()
-    .from(conversations)
-    .where(sql`${conversations.title} = ${prefix} OR ${conversations.title} LIKE ${prefix + "-%"}`)
-    .orderBy(desc(conversations.createdAt))
-    .limit(1);
-  if (existing.length > 0) return existing[0].id;
-  const [conv] = await db.insert(conversations).values({ title: prefix }).returning();
-  return conv.id;
+// ── In-process dedup for /start cart_ (catches macOS dual-client before any DB work) ──
+const recentStartKeys = new Map<string, number>(); // key → expiry timestamp
+
+function isDuplicateStart(chatId: number, text: string): boolean {
+  const key = `${chatId}:${text.slice(0, 100)}`;
+  const expiry = recentStartKeys.get(key);
+  if (expiry && Date.now() < expiry) return true;
+  recentStartKeys.set(key, Date.now() + 30_000);
+  // Prune old entries lazily
+  if (recentStartKeys.size > 200) {
+    const now = Date.now();
+    for (const [k, exp] of recentStartKeys) if (exp < now) recentStartKeys.delete(k);
+  }
+  return false;
 }
 
 /**
- * Create a brand-new conversation for a fresh /start session.
- * Timestamped title prevents old ORDER_AWAITING_PHONE markers from leaking in.
+ * ONE conversation per (chatId, storeId). Simple exact-match, no LIKE needed.
+ * Session boundaries are handled by SESSION_START: markers in the message log.
  */
-async function createFreshConversation(storeId: number, telegramChatId: number): Promise<number> {
-  const title = `telegram-${telegramChatId}-store-${storeId}-${Date.now()}`;
+async function getOrCreateConversation(storeId: number, telegramChatId: number): Promise<number> {
+  const title = `telegram-${telegramChatId}-store-${storeId}`;
+  const existing = await db.select().from(conversations).where(eq(conversations.title, title)).limit(1);
+  if (existing.length > 0) return existing[0].id;
   const [conv] = await db.insert(conversations).values({ title }).returning();
   return conv.id;
 }
 
+/**
+ * Get the messages for the CURRENT SESSION only — i.e. messages from the most
+ * recent SESSION_START: marker onwards.  Falls back to the last 8 messages when
+ * there is no SESSION_START (plain bot chat without a cart deep-link).
+ *
+ * This completely prevents stale ORDER_AWAITING_PHONE / ORDER_PLACED markers
+ * from a previous cart session leaking into the new one, without requiring
+ * separate conversations per session.
+ */
 async function getConversationHistory(conversationId: number): Promise<MessageRow[]> {
-  // Fetch the 6 MOST RECENT messages (newest first), then reverse so the AI
-  // receives them in chronological (oldest-first) order.
+  // Fetch last 30 messages newest-first, then reverse to chronological order.
   const rows = await db
     .select()
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
     .orderBy(desc(messages.createdAt))
-    .limit(6);
-  return rows.reverse();
+    .limit(30);
+  const chronological = rows.reverse();
+
+  // Find the LAST SESSION_START marker — only return messages from that point on.
+  let sessionStartIdx = -1;
+  for (let i = chronological.length - 1; i >= 0; i--) {
+    if (chronological[i].role === "system" && chronological[i].content.startsWith("SESSION_START:")) {
+      sessionStartIdx = i;
+      break;
+    }
+  }
+
+  if (sessionStartIdx >= 0) {
+    // Include the SESSION_START itself so ORDER_AWAITING_PHONE checks work correctly,
+    // but cap at 10 messages to keep AI context tight.
+    return chronological.slice(sessionStartIdx, sessionStartIdx + 10);
+  }
+
+  // No cart session yet — plain bot chat; take last 6 messages.
+  return chronological.slice(-6);
 }
 
 function buildSystemPrompt(
@@ -297,6 +325,11 @@ export async function processTelegramUpdate(
 
   // /start cart_<id>x<qty>_... — deep link from the "Order via Telegram AI" cart button
   if (userText.startsWith("/start cart_")) {
+    // In-process dedup: macOS opens both Telegram Desktop and Telegram Web when the
+    // shop fires window.open('https://t.me/bot?start=...'), producing two identical
+    // updates with different update_ids. Drop the second one immediately.
+    if (isDuplicateStart(chatId, userText)) return;
+
     const payload = userText.slice("/start cart_".length);
     const entries = payload.split("_").map((e) => {
       const [id, qty] = e.split("x").map(Number);
@@ -324,10 +357,14 @@ export async function processTelegramUpdate(
       ? `Hi ${firstName || "there"}! 👋 Here's your cart from *${store.name}*:\n\n${cartLines}\n\n*Total: ${store.currency || "GHS"} ${total.toFixed(2)}*\n\nShall I confirm this order, or would you like to make any changes?`
       : `Hi ${firstName || "there"}! 👋 Welcome to *${store.name}*. How can I help you today?`;
 
-    // Start a FRESH conversation for every /start so old ORDER_AWAITING_PHONE
-    // markers from previous sessions never pollute the new cart flow.
-    const conversationId = await createFreshConversation(storeId, chatId);
-    await db.insert(messages).values({ conversationId, role: "assistant", content: greeting });
+    // Use ONE conversation per user but insert a SESSION_START marker so
+    // getConversationHistory returns only messages from this session onwards,
+    // preventing stale ORDER_AWAITING_PHONE markers from old sessions from firing.
+    const conversationId = await getOrCreateConversation(storeId, chatId);
+    await db.insert(messages).values([
+      { conversationId, role: "system", content: `SESSION_START: ${Date.now()}` },
+      { conversationId, role: "assistant", content: greeting },
+    ]);
 
     await sendTelegramMessage(store.telegramBotToken, chatId, greeting);
     return;
@@ -462,15 +499,18 @@ export async function processTelegramUpdate(
     return;
   }
 
+  // Strip SESSION_START system markers before handing history to the AI.
+  const aiHistory = history.filter((m) => m.role !== "system");
+
   try {
-    let responseText = await callAI(systemPrompt, userText, history);
+    let responseText = await callAI(systemPrompt, userText, aiHistory);
 
     if (responseText.includes("SEARCH_WEB:")) {
       const query = responseText.split("SEARCH_WEB:")[1]?.trim().split("\n")[0] || userText;
       const searchResult = await searchWeb(query);
       assistantResponse = await callAIFollowUp(
         systemPrompt,
-        history,
+        aiHistory,
         userText,
         responseText,
         `Web search result: ${searchResult}\n\nRespond to the customer based on this.`,
