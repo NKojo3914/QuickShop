@@ -223,6 +223,10 @@ export const GetStoreSummaryResponse = zod.object({
   totalProducts: zod.number(),
   storeName: zod.string(),
   storeSlug: zod.string(),
+  totalOrders: zod.number(),
+  pendingOrders: zod.number(),
+  confirmedOrders: zod.number(),
+  completedOrders: zod.number(),
 });
 
 /**

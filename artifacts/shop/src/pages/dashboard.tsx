@@ -579,6 +579,28 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* Analytics */}
+            {summary && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-10">
+                <div className="bg-card border rounded-2xl p-4">
+                  <p className="text-xs text-muted-foreground mb-1">Products</p>
+                  <p className="text-2xl font-bold text-foreground">{summary.totalProducts}</p>
+                </div>
+                <div className="bg-card border rounded-2xl p-4">
+                  <p className="text-xs text-muted-foreground mb-1">Total Orders</p>
+                  <p className="text-2xl font-bold text-foreground">{summary.totalOrders}</p>
+                </div>
+                <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-2xl p-4">
+                  <p className="text-xs text-amber-700 dark:text-amber-400 mb-1">Pending</p>
+                  <p className="text-2xl font-bold text-amber-700 dark:text-amber-400">{summary.pendingOrders}</p>
+                </div>
+                <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-2xl p-4">
+                  <p className="text-xs text-green-700 dark:text-green-400 mb-1">Completed</p>
+                  <p className="text-2xl font-bold text-green-700 dark:text-green-400">{summary.completedOrders}</p>
+                </div>
+              </div>
+            )}
+
             <div className="mb-10">
               <h2 className="text-2xl font-serif font-bold text-foreground mb-6">
                 Products {summary ? `(${summary.totalProducts})` : ''}

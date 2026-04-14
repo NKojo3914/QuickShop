@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, sql } from "drizzle-orm";
-import { db, storesTable, productsTable } from "@workspace/db";
+import { db, storesTable, productsTable, ordersTable } from "@workspace/db";
 import {
   CreateStoreBody,
   GetStoreBySlugParams,
@@ -140,16 +140,36 @@ router.get("/stores/:storeId/summary", async (req, res): Promise<void> => {
     return;
   }
 
-  const [countResult] = await db
+  const [productCount] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(productsTable)
     .where(eq(productsTable.storeId, storeId));
 
+  const orderCounts = await db
+    .select({
+      status: ordersTable.status,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(ordersTable)
+    .where(eq(ordersTable.storeId, storeId))
+    .groupBy(ordersTable.status);
+
+  const countByStatus = (status: string) =>
+    orderCounts.find(r => r.status === status)?.count ?? 0;
+
+  const pendingOrders = countByStatus("pending");
+  const confirmedOrders = countByStatus("confirmed");
+  const completedOrders = countByStatus("completed");
+
   res.json(
     GetStoreSummaryResponse.parse({
-      totalProducts: countResult.count,
+      totalProducts: productCount.count,
       storeName: store.name,
       storeSlug: store.slug,
+      totalOrders: pendingOrders + confirmedOrders + completedOrders,
+      pendingOrders,
+      confirmedOrders,
+      completedOrders,
     })
   );
 });
