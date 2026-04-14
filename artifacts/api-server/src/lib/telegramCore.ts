@@ -240,7 +240,7 @@ async function getConversationHistory(conversationId: number): Promise<MessageRo
     .select()
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
-    .orderBy(desc(messages.createdAt))
+    .orderBy(desc(messages.id))
     .limit(30);
   const chronological = rows.reverse();
 
