@@ -1,5 +1,5 @@
 import { isNotNull } from "drizzle-orm";
-import { db, storesTable } from "@workspace/db";
+import { db, storesTable, processedTelegramUpdatesTable } from "@workspace/db";
 import type { Logger } from "pino";
 import { processTelegramUpdate } from "./telegramCore";
 
@@ -105,6 +105,15 @@ export function startTelegramPolling(logger: Logger): void {
           for (const upd of data.result) {
             offset = upd.update_id + 1;
             offsets.set(token, offset);
+            // DB-level dedup (shared with webhook path)
+            try {
+              const claimed = await db
+                .insert(processedTelegramUpdatesTable)
+                .values({ updateId: upd.update_id })
+                .onConflictDoNothing()
+                .returning();
+              if (claimed.length === 0) continue; // already handled by webhook
+            } catch { /* table not ready yet — proceed */ }
             await processTelegramUpdate(store.id, upd as Record<string, unknown>, logger);
           }
         }
