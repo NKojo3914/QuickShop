@@ -1,3 +1,10 @@
 <svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
-<rect width="180" height="180" rx="36" fill="#FF3C00"/>
+  <!-- Rounded background -->
+  <rect width="180" height="180" rx="40" fill="#C2610F"/>
+
+  <!-- Shopping bag icon (centered, white) -->
+  <!-- Bag body -->
+  <path d="M57 75 L63 130 H117 L123 75 Z" fill="white" stroke="white" stroke-width="2" stroke-linejoin="round"/>
+  <!-- Bag handle left -->
+  <path d="M72 75 C72 60 78 52 90 52 C102 52 108 60 108 75" stroke="white" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
 </svg>
