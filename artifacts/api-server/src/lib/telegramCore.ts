@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, gt } from "drizzle-orm";
 import { db, storesTable, productsTable, conversations, messages, ordersTable } from "@workspace/db";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
@@ -212,7 +212,14 @@ function isDuplicateStart(chatId: number, text: string): boolean {
  */
 async function getOrCreateConversation(storeId: number, telegramChatId: number): Promise<number> {
   const title = `telegram-${telegramChatId}-store-${storeId}`;
-  const existing = await db.select().from(conversations).where(eq(conversations.title, title)).limit(1);
+  // ORDER BY createdAt DESC so concurrent inserts (multiple Railway instances /
+  // dual-client /start) always agree on the same "primary" conversation row.
+  const existing = await db
+    .select()
+    .from(conversations)
+    .where(eq(conversations.title, title))
+    .orderBy(desc(conversations.createdAt))
+    .limit(1);
   if (existing.length > 0) return existing[0].id;
   const [conv] = await db.insert(conversations).values({ title }).returning();
   return conv.id;
@@ -325,10 +332,26 @@ export async function processTelegramUpdate(
 
   // /start cart_<id>x<qty>_... — deep link from the "Order via Telegram AI" cart button
   if (userText.startsWith("/start cart_")) {
-    // In-process dedup: macOS opens both Telegram Desktop and Telegram Web when the
-    // shop fires window.open('https://t.me/bot?start=...'), producing two identical
-    // updates with different update_ids. Drop the second one immediately.
+    // In-process dedup (first line of defence — catches same-instance duplicates fast).
     if (isDuplicateStart(chatId, userText)) return;
+
+    // DB-level dedup: check if a SESSION_START was already inserted for this
+    // (chatId, storeId) within the last 30 seconds. Works across all Railway
+    // instances where the in-process Map can't help.
+    const thirtySecsAgo = new Date(Date.now() - 30_000);
+    const recentConv = await getOrCreateConversation(storeId, chatId);
+    const recentSession = await db
+      .select()
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, recentConv),
+          eq(messages.role, "system"),
+          gt(messages.createdAt, thirtySecsAgo),
+        ),
+      )
+      .limit(1);
+    if (recentSession.length > 0) return; // duplicate /start within 30 s — skip
 
     const payload = userText.slice("/start cart_".length);
     const entries = payload.split("_").map((e) => {
@@ -360,7 +383,7 @@ export async function processTelegramUpdate(
     // Use ONE conversation per user but insert a SESSION_START marker so
     // getConversationHistory returns only messages from this session onwards,
     // preventing stale ORDER_AWAITING_PHONE markers from old sessions from firing.
-    const conversationId = await getOrCreateConversation(storeId, chatId);
+    const conversationId = recentConv; // already fetched above for dedup check
     await db.insert(messages).values([
       { conversationId, role: "system", content: `SESSION_START: ${Date.now()}` },
       { conversationId, role: "assistant", content: greeting },
@@ -396,9 +419,13 @@ export async function processTelegramUpdate(
     "you have my consent", "yes place", "yes, place", "ok place", "okay place",
     "do it", "yes go ahead", "proceed with", "finalize", "complete the order",
     "confirm order", "confirm it", "let's do it", "lets do it",
-    "yes please", "yes, please", "sure", "ok go", "okay go",
+    "yes please", "yes, please", "ok go", "okay go",
   ];
-  const lowerText = userText.toLowerCase();
+  // Single words that mean "yes" — only treated as confirmation when the bot
+  // has already shown a cart/total/confirm prompt in this session.
+  const confirmationWords = ["yes", "ok", "okay", "yep", "yea", "yeah", "sure",
+    "confirm", "confirmed", "proceed", "done", "go"];
+  const lowerText = userText.toLowerCase().trim();
 
   // Only treat an order as already placed if it happened in the CURRENT session
   // (i.e. after a SESSION_START marker). Without this, old ORDER_PLACED markers
@@ -406,11 +433,17 @@ export async function processTelegramUpdate(
   const hasSessionStart = history.some((m) => m.role === "system" && m.content.startsWith("SESSION_START:"));
   const orderAlreadyPlaced = hasSessionStart && history.some((m) => m.role === "assistant" && m.content.startsWith("ORDER_PLACED:"));
 
+  const historyHasCartContext = history.some(
+    (m) => m.role === "assistant" && (
+      m.content.includes("Total") ||
+      m.content.includes("cart") ||
+      m.content.toLowerCase().includes("confirm")
+    )
+  );
+
   const isConfirmation = !orderAlreadyPlaced && (
     confirmationPhrases.some((p) => lowerText.includes(p))
-    || (lowerText.trim() === "yes" && history.some((m) => m.role === "assistant" && m.content.toLowerCase().includes("confirm")))
-    || (["yes", "ok", "okay", "yep", "yea", "yeah"].includes(lowerText.trim()) &&
-        history.some((m) => m.role === "assistant" && (m.content.includes("Total") || m.content.includes("cart"))))
+    || (confirmationWords.includes(lowerText) && historyHasCartContext)
   );
 
   // ── Check if we're awaiting a phone number from a previous turn ──────────
