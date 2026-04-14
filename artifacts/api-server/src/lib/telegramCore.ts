@@ -235,13 +235,14 @@ async function getOrCreateConversation(storeId: number, telegramChatId: number):
  * separate conversations per session.
  */
 async function getConversationHistory(conversationId: number): Promise<MessageRow[]> {
-  // Fetch last 30 messages newest-first, then reverse to chronological order.
+  // Fetch last 60 messages newest-first, then reverse to chronological order.
+  // 60 is enough for any realistic negotiation session without being wasteful.
   const rows = await db
     .select()
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
     .orderBy(desc(messages.id))
-    .limit(30);
+    .limit(60);
   const chronological = rows.reverse();
 
   // Find the LAST SESSION_START marker — only return messages from that point on.
@@ -254,9 +255,10 @@ async function getConversationHistory(conversationId: number): Promise<MessageRo
   }
 
   if (sessionStartIdx >= 0) {
-    // Include the SESSION_START itself so ORDER_AWAITING_PHONE checks work correctly,
-    // but cap at 10 messages to keep AI context tight.
-    return chronological.slice(sessionStartIdx, sessionStartIdx + 10);
+    // Return ALL messages from the current session so state markers
+    // (ORDER_AWAITING_PHONE, ORDER_PLACED) are never cut off by a hard cap.
+    // The caller trims aiHistory separately before sending to the AI.
+    return chronological.slice(sessionStartIdx);
   }
 
   // No cart session yet — plain bot chat; take last 6 messages.
@@ -291,11 +293,12 @@ Products:
 ${productList}
 
 STRICT RULES:
-- [negotiable, min: X] = you CAN discount but NEVER go below X. Keep X secret. Make SPECIFIC counter-offers, never vague ones.
+- [negotiable, min: X] = you CAN discount but NEVER go below X. X is the absolute floor — do NOT reveal it. If the customer offers below X, politely counter-offer at exactly X and hold firm. NEVER go one cedi below X for any reason.
 - No [negotiable] tag = fixed price, politely decline discounts.
 - OUT OF STOCK = cannot be ordered.
 - If you see "ORDER_PLACED:" in the conversation history, the order is already confirmed. Do NOT output CONFIRM_ORDER again. Just respond warmly (e.g. answer follow-up questions, wish them well).
-- CRITICAL: When the customer says anything like "place the order", "confirm", "yes", "okay go ahead", "i'll take it" — you MUST output this EXACT line (alone on its own line, nothing before or after on that line):
+- CONFIRM_ORDER ONLY when the customer explicitly agrees to buy at a stated price — e.g. "yes", "deal", "ok", "i'll take it", "place the order". Do NOT output CONFIRM_ORDER just because the customer mentions a number or asks a price question like "2750?" or "how about 2700?". Those are counter-offers, respond with your own counter.
+- When the customer does confirm, output this EXACT line (alone on its own line):
   CONFIRM_ORDER: <items, quantities, agreed prices, and total>
   Example: CONFIRM_ORDER: 1x Tom Ford Jacket @ GHS 1480, 1x Prada Bold White Tongues @ GHS 1380. Total: GHS 2860
   After that line, add a warm confirmation message for the customer.
@@ -535,8 +538,10 @@ export async function processTelegramUpdate(
     return;
   }
 
-  // Strip SESSION_START system markers before handing history to the AI.
-  const aiHistory = history.filter((m) => m.role !== "system");
+  // Strip SESSION_START system markers before handing history to the AI,
+  // and cap at last 14 messages so long negotiation sessions stay within
+  // token limits without losing recent context.
+  const aiHistory = history.filter((m) => m.role !== "system").slice(-14);
 
   try {
     let responseText = await callAI(systemPrompt, userText, aiHistory);
