@@ -303,6 +303,11 @@ export async function processTelegramUpdate(
       ? `Hi ${firstName || "there"}! 👋 Here's your cart from *${store.name}*:\n\n${cartLines}\n\n*Total: ${store.currency || "GHS"} ${total.toFixed(2)}*\n\nShall I confirm this order, or would you like to make any changes?`
       : `Hi ${firstName || "there"}! 👋 Welcome to *${store.name}*. How can I help you today?`;
 
+    // Save the greeting to the conversation so the user can reply "yes, confirm"
+    // and the bot can find the cart summary in history.
+    const conversationId = await getOrCreateConversation(storeId, chatId);
+    await db.insert(messages).values({ conversationId, role: "assistant", content: greeting });
+
     await sendTelegramMessage(store.telegramBotToken, chatId, greeting);
     return;
   }
@@ -330,9 +335,11 @@ export async function processTelegramUpdate(
   // Detect confirmation intent directly — don't rely on the AI to output a magic token
   const confirmationPhrases = [
     "place my order", "place the order", "confirm my order", "confirm the order",
-    "go ahead", "proceed", "yes confirm", "i confirm", "place it",
+    "go ahead", "proceed", "yes confirm", "yes, confirm", "i confirm", "place it",
     "you have my consent", "yes place", "yes, place", "ok place", "okay place",
     "do it", "yes go ahead", "proceed with", "finalize", "complete the order",
+    "confirm order", "confirm it", "let's do it", "lets do it",
+    "yes please", "yes, please", "sure", "ok go", "okay go",
   ];
   const lowerText = userText.toLowerCase();
 
@@ -342,6 +349,8 @@ export async function processTelegramUpdate(
   const isConfirmation = !orderAlreadyPlaced && (
     confirmationPhrases.some((p) => lowerText.includes(p))
     || (lowerText.trim() === "yes" && history.some((m) => m.role === "assistant" && m.content.toLowerCase().includes("confirm")))
+    || (["yes", "ok", "okay", "yep", "yea", "yeah"].includes(lowerText.trim()) &&
+        history.some((m) => m.role === "assistant" && (m.content.includes("Total") || m.content.includes("cart"))))
   );
 
   // ── Check if we're awaiting a phone number from a previous turn ──────────
@@ -383,7 +392,7 @@ export async function processTelegramUpdate(
     return;
   }
 
-  if (isConfirmation && history.length > 0) {
+  if (isConfirmation) {
     // Extract order summary from the most recent assistant message that mentions a total or items
     const recentBotMsg = [...history].reverse().find(
       (m) => m.role === "assistant" && (m.content.includes("Total") || m.content.includes("GHS") || m.content.includes(store.currency || "GHS"))

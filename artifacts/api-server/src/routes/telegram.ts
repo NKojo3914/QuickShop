@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db, storesTable, processedTelegramUpdatesTable } from "@workspace/db";
+import { pool } from "@workspace/db";
 import { SetupTelegramWebhookParams, SetupTelegramWebhookResponse } from "@workspace/api-zod";
 import { processTelegramUpdate } from "../lib/telegramCore";
 
@@ -17,8 +18,7 @@ router.post("/telegram/webhook/:storeId", async (req, res): Promise<void> => {
   const body = req.body as Record<string, unknown>;
   const updateId = typeof body.update_id === "number" ? body.update_id : null;
 
-  // DB-level dedup: claim this update_id with a unique INSERT.
-  // If another instance (or a retry) already claimed it, the INSERT returns nothing → skip.
+  // ── Dedup layer 1: update_id (same physical delivery / Telegram retry) ──────
   if (updateId !== null) {
     try {
       const claimed = await db
@@ -27,18 +27,44 @@ router.post("/telegram/webhook/:storeId", async (req, res): Promise<void> => {
         .onConflictDoNothing()
         .returning();
       if (claimed.length === 0) {
-        req.log.warn({ storeId, updateId }, "Telegram webhook: duplicate update_id, skipping");
+        req.log.warn({ storeId, updateId }, "Telegram: duplicate update_id, skipping");
         return;
       }
     } catch (err) {
-      const code = (err as { code?: string }).code;
-      if (code === "42P01") {
-        // Table doesn't exist yet (race with startup migration) — process without dedup this once.
-        req.log.warn({ updateId }, "Telegram dedup table missing, processing without dedup");
-      } else {
-        // Unexpected DB error — log but don't block the message.
-        req.log.error({ err, updateId }, "Telegram dedup INSERT failed");
+      req.log.warn({ err, updateId }, "Telegram dedup (update_id) failed, continuing");
+    }
+  }
+
+  // ── Dedup layer 2: content + chatId within 30 s ───────────────────────────
+  // On macOS, window.open('https://t.me/...') triggers BOTH Telegram Desktop
+  // (via Universal Link) AND Telegram Web — two different update_ids, same message.
+  const msgBody = body.message as Record<string, unknown> | undefined;
+  const chatId  = typeof (msgBody?.chat as Record<string, unknown> | undefined)?.id === "number"
+    ? (msgBody!.chat as Record<string, unknown>).id as number
+    : null;
+  const msgText = typeof msgBody?.text === "string" ? msgBody.text : null;
+
+  if (chatId !== null && msgText !== null) {
+    // content_hash = first 80 chars is enough to identify the message
+    const contentHash = `${chatId}:${msgText.slice(0, 80)}`;
+    try {
+      const result = await pool.query<{ id: number }>(`
+        WITH cleanup AS (
+          DELETE FROM telegram_chat_dedup
+          WHERE chat_id = $1 AND content_hash = $2
+            AND created_at < NOW() - INTERVAL '30 seconds'
+        )
+        INSERT INTO telegram_chat_dedup (chat_id, content_hash)
+        VALUES ($1, $2)
+        ON CONFLICT (chat_id, content_hash) DO NOTHING
+        RETURNING ctid
+      `, [chatId, contentHash]);
+      if (result.rowCount === 0) {
+        req.log.warn({ storeId, chatId }, "Telegram: duplicate content within 30 s, skipping");
+        return;
       }
+    } catch (err) {
+      req.log.warn({ err }, "Telegram content dedup failed, continuing");
     }
   }
 
