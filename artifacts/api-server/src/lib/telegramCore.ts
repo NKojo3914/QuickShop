@@ -519,13 +519,25 @@ export async function processTelegramUpdate(
   }
 
   if (isConfirmation) {
-    // Extract order summary from the most recent assistant message that mentions a total or items
-    const recentBotMsg = [...history].reverse().find(
-      (m) => m.role === "assistant" && (m.content.includes("Total") || m.content.includes("GHS") || m.content.includes(store.currency || "GHS"))
-    );
-    confirmedOrderSummary = recentBotMsg
-      ? recentBotMsg.content.slice(0, 200)
-      : `Order from ${store.name}`;
+    // Ask the AI to produce the CONFIRM_ORDER line so it captures negotiated
+    // prices correctly. Fall back to the cart greeting if the AI fails.
+    const aiHistoryForConfirm = history.filter((m) => m.role !== "system").slice(-14);
+    try {
+      const confirmText = await callAI(systemPrompt, userText, aiHistoryForConfirm);
+      if (confirmText.includes("CONFIRM_ORDER:")) {
+        confirmedOrderSummary = confirmText.split("CONFIRM_ORDER:")[1]?.trim().split("\n")[0] || "";
+      }
+    } catch { /* ignore — fall through to greeting-based fallback */ }
+
+    if (!confirmedOrderSummary) {
+      // Fallback: use the original cart greeting (always has "Here's your cart")
+      const cartMsg = [...history].reverse().find(
+        (m) => m.role === "assistant" && m.content.includes("Here's your cart")
+      );
+      confirmedOrderSummary = cartMsg
+        ? cartMsg.content.slice(0, 300)
+        : `Order from ${store.name}`;
+    }
 
     // Ask for phone number before finalising
     const phoneAsk = `Perfect! 📞 Before I confirm your order, could you share your phone number so the seller can reach you?`;
