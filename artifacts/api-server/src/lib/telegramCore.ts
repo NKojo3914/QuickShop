@@ -297,11 +297,14 @@ STRICT RULES:
 - No [negotiable] tag = fixed price, politely decline discounts.
 - OUT OF STOCK = cannot be ordered.
 - If you see "ORDER_PLACED:" in the conversation history, the order is already confirmed. Do NOT output CONFIRM_ORDER again. Just respond warmly (e.g. answer follow-up questions, wish them well).
-- CONFIRM_ORDER ONLY when the customer explicitly agrees to buy at a stated price — e.g. "yes", "deal", "ok", "i'll take it", "place the order". Do NOT output CONFIRM_ORDER just because the customer mentions a number or asks a price question like "2750?" or "how about 2700?". Those are counter-offers, respond with your own counter.
-- When the customer does confirm, output this EXACT line (alone on its own line):
+- CONFIRM_ORDER ONLY when the customer explicitly agrees to buy at a stated price — e.g. "yes", "deal", "ok", "i'll take it", "place the order", "okay confirm". Do NOT output CONFIRM_ORDER just because the customer mentions a number or asks a price question like "2750?" or "how about 2700?". Those are counter-offers, respond with your own counter.
+- CRITICAL: When confirming, you MUST output the CONFIRM_ORDER line FIRST — BEFORE any warm message. NEVER say "on its way", "confirmed", "thank you", or anything that implies the order is done WITHOUT first outputting the CONFIRM_ORDER line. If you skip it, the order will NOT be recorded.
+- Output format (exact):
   CONFIRM_ORDER: <items, quantities, agreed prices, and total>
-  Example: CONFIRM_ORDER: 1x Tom Ford Jacket @ GHS 1480, 1x Prada Bold White Tongues @ GHS 1380. Total: GHS 2860
-  After that line, add a warm confirmation message for the customer.
+  <warm message on the next line>
+  Example:
+  CONFIRM_ORDER: 1x Tom Ford Jacket @ GHS 1450. Total: GHS 1450
+  Thanks, Kojo! Your Tom Ford Jacket is on its way. Have a great day! 🎉
 
 BEHAVIOUR:
 - Be decisive. Quote specific prices, don't hedge.
@@ -444,9 +447,14 @@ export async function processTelegramUpdate(
     )
   );
 
+  // Word-boundary check: catches "okay, confirm", "yes!", "ok sure" etc.
+  const containsConfirmWord = confirmationWords.some((w) =>
+    new RegExp(`\\b${w}\\b`).test(lowerText)
+  );
+
   const isConfirmation = !orderAlreadyPlaced && (
     confirmationPhrases.some((p) => lowerText.includes(p))
-    || (confirmationWords.includes(lowerText) && historyHasCartContext)
+    || (containsConfirmWord && historyHasCartContext)
   );
 
   // ── Check if we're awaiting a phone number from a previous turn ──────────
