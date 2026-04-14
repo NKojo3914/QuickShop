@@ -58,8 +58,8 @@ router.patch("/orders/:id", requireAuth, async (req, res): Promise<void> => {
   }
 
   const { status } = req.body as { status?: string };
-  if (!status || !["pending", "confirmed", "completed"].includes(status)) {
-    res.status(400).json({ error: "Status must be one of: pending, confirmed, completed" });
+  if (!status || !["pending", "confirmed", "completed", "cancelled"].includes(status)) {
+    res.status(400).json({ error: "Status must be one of: pending, confirmed, completed, cancelled" });
     return;
   }
 
@@ -93,13 +93,15 @@ router.patch("/orders/:id", requireAuth, async (req, res): Promise<void> => {
   if (
     order.customerTelegramChatId &&
     store.telegramBotToken &&
-    (status === "confirmed" || status === "completed")
+    (status === "confirmed" || status === "completed" || status === "cancelled")
   ) {
     const ref = `QS-${String(order.id).padStart(4, "0")}`;
     const msg =
       status === "confirmed"
         ? `✅ Your order *${ref}* has been confirmed by *${store.name}*! They'll be in touch shortly to arrange delivery and payment. 🛍️`
-        : `🎉 Your order *${ref}* is complete! Thank you for shopping with *${store.name}*. We hope to see you again! 😊`;
+        : status === "completed"
+        ? `🎉 Your order *${ref}* is complete! Thank you for shopping with *${store.name}*. We hope to see you again! 😊`
+        : `❌ Sorry, your order *${ref}* from *${store.name}* has been cancelled. Please contact the seller for more information.`;
     await sendTelegramMessage(store.telegramBotToken, order.customerTelegramChatId, msg);
   }
 

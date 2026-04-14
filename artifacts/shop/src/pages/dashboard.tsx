@@ -1297,12 +1297,20 @@ export default function Dashboard() {
                           <span className="text-xs text-muted-foreground/60 flex items-center gap-1">
                             <Clock className="w-3 h-3" />{new Date(order.createdAt).toLocaleString()}
                           </span>
-                          <Button size="sm" variant="outline"
-                            className="h-7 text-xs rounded-full px-3 text-blue-600 border-blue-300 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40"
-                            onClick={() => handleUpdateOrderStatus(order.id, "confirmed")}
-                            disabled={updateOrderMutation.isPending}>
-                            <CircleCheck className="w-3 h-3 mr-1" /> Confirm
-                          </Button>
+                          <div className="flex gap-1.5">
+                            <Button size="sm" variant="outline"
+                              className="h-7 text-xs rounded-full px-3 text-red-500 border-red-200 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                              onClick={() => handleUpdateOrderStatus(order.id, "cancelled")}
+                              disabled={updateOrderMutation.isPending}>
+                              <PackageX className="w-3 h-3 mr-1" /> Cancel
+                            </Button>
+                            <Button size="sm" variant="outline"
+                              className="h-7 text-xs rounded-full px-3 text-blue-600 border-blue-300 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40"
+                              onClick={() => handleUpdateOrderStatus(order.id, "confirmed")}
+                              disabled={updateOrderMutation.isPending}>
+                              <CircleCheck className="w-3 h-3 mr-1" /> Confirm
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -1346,12 +1354,20 @@ export default function Dashboard() {
                           <span className="text-xs text-muted-foreground/60 flex items-center gap-1">
                             <Clock className="w-3 h-3" />{new Date(order.createdAt).toLocaleString()}
                           </span>
-                          <Button size="sm" variant="outline"
-                            className="h-7 text-xs rounded-full px-3 text-green-600 border-green-300 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/40"
-                            onClick={() => handleUpdateOrderStatus(order.id, "completed")}
-                            disabled={updateOrderMutation.isPending}>
-                            <CheckCircle2 className="w-3 h-3 mr-1" /> Complete
-                          </Button>
+                          <div className="flex gap-1.5">
+                            <Button size="sm" variant="outline"
+                              className="h-7 text-xs rounded-full px-3 text-red-500 border-red-200 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                              onClick={() => handleUpdateOrderStatus(order.id, "cancelled")}
+                              disabled={updateOrderMutation.isPending}>
+                              <PackageX className="w-3 h-3 mr-1" /> Cancel
+                            </Button>
+                            <Button size="sm" variant="outline"
+                              className="h-7 text-xs rounded-full px-3 text-green-600 border-green-300 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/40"
+                              onClick={() => handleUpdateOrderStatus(order.id, "completed")}
+                              disabled={updateOrderMutation.isPending}>
+                              <CheckCircle2 className="w-3 h-3 mr-1" /> Complete
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -1361,17 +1377,17 @@ export default function Dashboard() {
 
               {/* History tab */}
               <TabsContent value="history" className="flex-1 overflow-y-auto px-5 pt-4 pb-6 mt-0">
-                {!orders?.filter(o => o.status === "completed").length ? (
+                {!orders?.filter(o => o.status === "completed" || o.status === "cancelled").length ? (
                   <div className="flex flex-col items-center justify-center py-16 text-center">
                     <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mb-3">
                       <CheckCircle2 className="w-5 h-5 text-muted-foreground" />
                     </div>
                     <p className="font-medium text-foreground mb-1">No history yet</p>
-                    <p className="text-sm text-muted-foreground">Completed orders will appear here.</p>
+                    <p className="text-sm text-muted-foreground">Completed and cancelled orders will appear here.</p>
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {orders!.filter(o => o.status === "completed").map(order => (
+                    {orders!.filter(o => o.status === "completed" || o.status === "cancelled").map(order => (
                       <div key={order.id} className="bg-card border rounded-xl p-3.5 flex flex-col gap-2 shadow-sm opacity-80">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex flex-col min-w-0">
@@ -1386,9 +1402,15 @@ export default function Dashboard() {
                             )}
                           </div>
                           <div className="flex flex-col items-end gap-1 shrink-0">
-                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400 flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3" /> Done
-                            </span>
+                            {order.status === "cancelled" ? (
+                              <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400 flex items-center gap-1">
+                                <PackageX className="w-3 h-3" /> Cancelled
+                              </span>
+                            ) : (
+                              <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400 flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" /> Done
+                              </span>
+                            )}
                             <span className="text-[10px] font-mono text-muted-foreground">{orderRef(order.id)}</span>
                           </div>
                         </div>
