@@ -575,7 +575,38 @@ export async function processTelegramUpdate(
       }
     }
 
-    // Priority 3: cart greeting — extract only item lines + total, strip boilerplate
+    // Priority 3: last bot negotiation message — extract settled price and combine
+    // with item names from the cart greeting (handles "I can do GHS 1450, take it?")
+    if (!confirmedOrderSummary) {
+      const currency = store.currency || "GHS";
+      const priceRe = new RegExp(`\\b${currency}\\s*([\\d,]+(?:\\.\\d+)?)`, "i");
+      const markerPrefixes = ["ORDER_AWAITING_PHONE:", "ORDER_PLACED:", "CONFIRM_ORDER:"];
+      const lastNegMsg = [...history].reverse().find(
+        (m) =>
+          m.role === "assistant" &&
+          priceRe.test(m.content) &&
+          !markerPrefixes.some((p) => m.content.startsWith(p)) &&
+          !m.content.includes("Here's your cart")
+      );
+      const cartMsg = [...history].find(
+        (m) => m.role === "assistant" && m.content.includes("Here's your cart")
+      );
+      if (lastNegMsg && cartMsg) {
+        const priceMatch = lastNegMsg.content.match(priceRe);
+        const settledPrice = priceMatch ? `${currency} ${priceMatch[1]}` : null;
+        const itemLines = cleanSummary(cartMsg.content)
+          .split("\n")
+          .filter((l) => l.startsWith("•"));
+        if (settledPrice && itemLines.length > 0) {
+          // Replace the price on each item line with the settled price,
+          // then recalculate the total.
+          const updatedLines = itemLines.map((l) => l.replace(/GHS\s*[\d,]+(?:\.\d+)?/i, settledPrice));
+          confirmedOrderSummary = `${updatedLines.join("\n")}\nTotal: ${settledPrice}`;
+        }
+      }
+    }
+
+    // Priority 4: cart greeting at listed price (no negotiation took place)
     if (!confirmedOrderSummary) {
       const cartMsg = [...history].reverse().find(
         (m) => m.role === "assistant" && m.content.includes("Here's your cart")
