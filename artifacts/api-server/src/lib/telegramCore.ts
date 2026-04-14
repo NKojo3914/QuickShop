@@ -557,13 +557,22 @@ export async function processTelegramUpdate(
         .split("CONFIRM_ORDER:")[1]?.trim().split("\n")[0] || "";
     }
 
-    // Priority 2: "Just to confirm — you'd like to pay X for Y?" bot message
-    // (captures the agreed negotiated price)
+    // Priority 2: "Just to confirm — you'd like to pay GHS X for the Y?" bot message
+    // Parse it into the same item-line format as the cart summary.
     if (!confirmedOrderSummary) {
       const jtcMsg = [...history].reverse().find(
         (m) => m.role === "assistant" && m.content.toLowerCase().startsWith("just to confirm")
       );
-      if (jtcMsg) confirmedOrderSummary = jtcMsg.content.replace(/\*/g, "").trim();
+      if (jtcMsg) {
+        const match = jtcMsg.content.match(/pay\s+((?:GHS|USD|EUR|GBP|NGN|KES|XOF|ZAR)?\s*[\d,]+(?:\.\d+)?)\s+for\s+(?:the\s+)?(.+?)[\?\.]*$/i);
+        if (match) {
+          const price = match[1].trim();
+          const item = match[2].trim();
+          confirmedOrderSummary = `• ${item} x1 — ${price}\nTotal: ${price}`;
+        } else {
+          confirmedOrderSummary = jtcMsg.content.replace(/\*/g, "").trim();
+        }
+      }
     }
 
     // Priority 3: cart greeting — extract only item lines + total, strip boilerplate
