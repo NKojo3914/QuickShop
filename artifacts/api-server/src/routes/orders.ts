@@ -19,7 +19,7 @@ async function sendTelegramMessage(botToken: string, chatId: number | string, te
         body: JSON.stringify({ chat_id: chatId, text }),
       });
     }
-  } catch { /* silent */ }
+  } catch (err) { console.error("sendTelegramMessage failed:", err); }
 }
 
 const router: IRouter = Router();

@@ -33,7 +33,7 @@ export default function Storefront() {
     query: { enabled: !!slug, queryKey: getGetStoreBySlugQueryKey(slug) }
   });
 
-  const { data: products, isLoading: isProductsLoading } = useListProducts(store?.id || 0, {
+  const { data: products, isLoading: isProductsLoading, error: productsError } = useListProducts(store?.id || 0, {
     query: { enabled: !!store?.id, queryKey: getListProductsQueryKey(store?.id || 0) }
   });
 
@@ -179,6 +179,12 @@ export default function Storefront() {
         {isProductsLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
             {[1, 2, 3].map(i => <Skeleton key={i} className="h-96 rounded-3xl" />)}
+          </div>
+        ) : productsError ? (
+          <div className="text-center py-20">
+            <PackageX className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+            <h3 className="text-xl font-medium text-foreground mb-2">Couldn't load products</h3>
+            <p className="text-muted-foreground">Something went wrong. Please refresh the page to try again.</p>
           </div>
         ) : products?.length === 0 ? (
           <div className="text-center py-20">
