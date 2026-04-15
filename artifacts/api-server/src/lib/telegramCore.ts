@@ -494,7 +494,7 @@ export async function processTelegramUpdate(
   // Also reject inputs that look like confirmations rather than phone numbers.
   // Require at least 7 digits so "yes12" or "go ahead3" can't be captured as a phone.
   const digitCount = (userText.match(/\d/g) || []).length;
-  const looksLikePhone = digitCount >= 7;
+  const looksLikePhone = digitCount === 10;
 
   if (validAwaitingPhone) {
     const pendingSummary = awaitingPhoneMsg!.content.slice("ORDER_AWAITING_PHONE:".length).trim();
@@ -502,7 +502,7 @@ export async function processTelegramUpdate(
     if (!looksLikePhone) {
       // User replied with something that isn't a phone number — re-ask and PRESERVE the
       // ORDER_AWAITING_PHONE marker so the NEXT message still triggers the phone handler.
-      const reAsk = `📞 Please share your phone number (e.g. 0241234567) so the seller can reach you to arrange delivery.`;
+      const reAsk = `📞 Please share your 10-digit phone number (e.g. 0241234567) so the seller can reach you to arrange delivery.`;
       await db.insert(messages).values([
         { conversationId, role: "user", content: userText },
         { conversationId, role: "assistant", content: `ORDER_AWAITING_PHONE: ${pendingSummary}` },
@@ -594,7 +594,7 @@ export async function processTelegramUpdate(
     if (!confirmedOrderSummary) confirmedOrderSummary = `Order from ${store.name}`;
 
     // Ask for phone number before finalising
-    const phoneAsk = `Perfect! 📞 Before I confirm your order, could you share your phone number so the seller can reach you?`;
+    const phoneAsk = `Perfect! 📞 Before I confirm your order, could you share your 10-digit phone number (e.g. 0241234567) so the seller can reach you?`;
     await db.insert(messages).values([
       { conversationId, role: "user", content: userText },
       { conversationId, role: "assistant", content: `ORDER_AWAITING_PHONE: ${confirmedOrderSummary}` },
