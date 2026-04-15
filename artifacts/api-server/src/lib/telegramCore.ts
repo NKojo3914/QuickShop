@@ -624,9 +624,8 @@ export async function processTelegramUpdate(
       );
     } else if (responseText.includes("CONFIRM_ORDER:") && !orderAlreadyPlaced) {
       confirmedOrderSummary = responseText.split("CONFIRM_ORDER:")[1]?.trim().split("\n")[0] || "";
-      // Strip the CONFIRM_ORDER: line from what the customer sees — just show the warm message after it
-      const warmPart = responseText.split("\n").filter((l) => !l.startsWith("CONFIRM_ORDER:")).join("\n").trim();
-      assistantResponse = warmPart || `📞 Before I confirm your order, could you share your phone number so the seller can reach you?`;
+      // Always ask for phone next — never show "on its way" before we have contact details.
+      assistantResponse = `📞 Before I confirm your order, could you share your phone number so the seller can reach you?`;
     } else {
       assistantResponse = responseText;
       // Safety net: AI confirmed the order in natural language but forgot CONFIRM_ORDER:
