@@ -16,6 +16,7 @@ if (process.env.DATABASE_URL) {
   const telegramRouter = (await import("./telegram")).default;
   const ordersRouter = (await import("./orders")).default;
   const searchRouter = (await import("./search")).default;
+  const paymentsRouter = (await import("./payments")).default;
 
   router.use(authRouter);
   router.use(storesRouter);
@@ -23,6 +24,7 @@ if (process.env.DATABASE_URL) {
   router.use(telegramRouter);
   router.use(ordersRouter);
   router.use(searchRouter);
+  router.use(paymentsRouter);
 }
 
 export default router;

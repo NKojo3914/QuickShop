@@ -1,6 +1,11 @@
 import { eq, desc, and, gt } from "drizzle-orm";
 import { db, storesTable, productsTable, conversations, messages, ordersTable } from "@workspace/db";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import {
+  initTransaction,
+  generatePaymentReference,
+  parseTotalFromSummary,
+} from "./paystack";
 
 type MessageRow = typeof messages.$inferSelect;
 type ProductRow = typeof productsTable.$inferSelect;
@@ -515,6 +520,9 @@ export async function processTelegramUpdate(
     const customerPhone = userText.replace(/\s+/g, "").slice(0, 30);
 
     try {
+      const currency = store.currency || "GHS";
+      const parsedAmount = parseTotalFromSummary(pendingSummary, currency);
+
       const [newOrder] = await db.insert(ordersTable).values({
         storeId,
         customerName,
@@ -522,10 +530,42 @@ export async function processTelegramUpdate(
         customerTelegramChatId: chatId,
         summary: pendingSummary,
         status: "pending",
+        amount: parsedAmount ? parsedAmount.toFixed(2) : null,
+        currency: parsedAmount ? currency : null,
       }).returning();
 
       const ref = `QS-${String(newOrder.id).padStart(4, "0")}`;
-      assistantResponse = `✅ Order *${ref}* confirmed, ${firstName || "my friend"}! The seller will contact you on *${customerPhone}* to arrange payment and delivery. Thank you for shopping with *${store.name}*! 🛍️`;
+
+      // Try to issue an escrow payment link if Paystack is configured AND we
+      // could parse a total from the summary. Falls back to "seller will
+      // contact you" flow when payments aren't set up — keeps existing stores
+      // working unchanged.
+      let paymentLine = "";
+      if (process.env.PAYSTACK_SECRET_KEY && parsedAmount && parsedAmount > 0) {
+        try {
+          const paymentRef = generatePaymentReference(newOrder.id);
+          const baseUrl = process.env.PUBLIC_BASE_URL || "https://quickshop.local";
+          const init = await initTransaction({
+            amount: parsedAmount,
+            email: `order-${newOrder.id}@quickshop.local`,
+            reference: paymentRef,
+            currency,
+            callbackUrl: `${baseUrl}/pay/callback?orderId=${newOrder.id}`,
+            metadata: { orderId: newOrder.id, storeId, storeSlug: store.slug },
+          });
+          await db
+            .update(ordersTable)
+            .set({ paymentReference: paymentRef, paymentStatus: "pending" })
+            .where(eq(ordersTable.id, newOrder.id));
+          paymentLine = `\n\n💳 *Pay securely now to lock in your order:*\n${init.authorization_url}\n\nWe hold your payment in escrow and only release it to *${store.name}* after you receive your item.`;
+        } catch (err) {
+          log.warn({ err }, "Paystack init failed; falling back to no-payment flow");
+        }
+      }
+
+      assistantResponse = paymentLine
+        ? `✅ Order *${ref}* received, ${firstName || "my friend"}! ${paymentLine}`
+        : `✅ Order *${ref}* confirmed, ${firstName || "my friend"}! The seller will contact you on *${customerPhone}* to arrange payment and delivery. Thank you for shopping with *${store.name}*! 🛍️`;
 
       await db.insert(messages).values([
         { conversationId, role: "user", content: userText },
@@ -535,10 +575,13 @@ export async function processTelegramUpdate(
 
       if (store.sellerTelegramChatId && store.telegramBotToken) {
         const orderTime = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+        const escrowNote = paymentLine
+          ? "\n💳 *Payment:* Buyer was sent a secure payment link. You'll be notified when funds arrive in escrow."
+          : "";
         await sendTelegramMessage(
           store.telegramBotToken,
           store.sellerTelegramChatId,
-          `🛒 *New Order ${ref}*\n\n👤 *Customer:* ${customerName}\n📞 *Phone:* ${customerPhone}\n📦 *Order:* ${pendingSummary}\n🕐 *Time:* ${orderTime}\n\nOpen your dashboard to confirm.`,
+          `🛒 *New Order ${ref}*\n\n👤 *Customer:* ${customerName}\n📞 *Phone:* ${customerPhone}\n📦 *Order:* ${pendingSummary}\n🕐 *Time:* ${orderTime}${escrowNote}\n\nOpen your dashboard to manage.`,
         );
       }
 

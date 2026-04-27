@@ -15,6 +15,17 @@ export const storesTable = pgTable("stores", {
   sellerTelegramChatId: text("seller_telegram_chat_id"),
   currency: text("currency").notNull().default("GHS"),
   sellerId: integer("seller_id").references(() => sellersTable.id, { onDelete: "set null" }),
+
+  // ── Payout / Paystack escrow ───────────────────────────────────────────────
+  // Paystack bank/MoMo code returned from /bank?currency=GHS (e.g. "MTN" for MoMo).
+  paystackBankCode: text("paystack_bank_code"),
+  // The seller's account or MoMo number to pay out to.
+  paystackAccountNumber: text("paystack_account_number"),
+  paystackAccountName: text("paystack_account_name"),
+  // Paystack transfer-recipient code created from the bank details above —
+  // required to initiate transfers when releasing escrow.
+  paystackRecipientCode: text("paystack_recipient_code"),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

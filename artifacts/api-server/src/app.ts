@@ -35,7 +35,15 @@ app.use(cors({
   credentials: true,
 }));
 app.use(cookieParser());
-app.use(express.json());
+// Capture the raw request body so HMAC-signed webhooks (e.g. Paystack) can
+// verify the signature against the exact bytes Paystack signed. Without this
+// JSON.stringify() of the parsed body would re-serialize whitespace differently
+// and the HMAC would never match.
+app.use(express.json({
+  verify: (req, _res, buf) => {
+    (req as unknown as { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+  },
+}));
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);

@@ -14,6 +14,7 @@ import {
   ChevronDown,
   Coins,
   SlidersHorizontal,
+  Banknote,
 } from "lucide-react";
 import {
   useGetStoreBySlug,
@@ -59,6 +60,7 @@ import { StoreSettingsDialog } from "@/components/dashboard/StoreSettingsDialog"
 import { TelegramSettingsDialog } from "@/components/dashboard/TelegramSettingsDialog";
 import { CurrencyDialog } from "@/components/dashboard/CurrencyDialog";
 import { QrCodeDialog } from "@/components/dashboard/QrCodeDialog";
+import { PayoutSetupDialog } from "@/components/dashboard/PayoutSetupDialog";
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -157,6 +159,9 @@ export default function Dashboard() {
   const [isCurrencyOpen, setIsCurrencyOpen] = useState(false);
   const [isStoreSettingsOpen, setIsStoreSettingsOpen] = useState(false);
   const [isQrOpen, setIsQrOpen] = useState(false);
+  const [isPayoutSetupOpen, setIsPayoutSetupOpen] = useState(false);
+  const [shippingOrderId, setShippingOrderId] = useState<number | null>(null);
+  const [releasingOrderId, setReleasingOrderId] = useState<number | null>(null);
 
   // ── Form-level state ──────────────────────────────────────────────────────
   const [telegramToken, setTelegramToken] = useState("");
@@ -211,6 +216,59 @@ export default function Dashboard() {
         queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey(store?.id || 0) });
       }
     });
+  };
+
+  const handleShipOrder = async (orderId: number) => {
+    setShippingOrderId(orderId);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/ship`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to mark shipped");
+      toast({ title: "Marked as shipped", description: "The buyer has been notified." });
+      queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey(store?.id || 0) });
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Failed to mark shipped",
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setShippingOrderId(null);
+    }
+  };
+
+  const handleReleaseFunds = async (orderId: number) => {
+    setReleasingOrderId(orderId);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/release`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to release funds");
+      toast({
+        title: "Funds released",
+        description: data.payout
+          ? `Payout of ${data.currency || store?.currency || "GHS"} ${data.payout} sent (${data.platformFeePct}% fee).`
+          : "Transfer initiated.",
+      });
+      queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey(store?.id || 0) });
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Release failed",
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setReleasingOrderId(null);
+    }
   };
 
   const handleSaveTelegramSettings = async () => {
@@ -491,6 +549,13 @@ export default function Dashboard() {
                   Currency
                   <span className="ml-auto text-xs text-muted-foreground">{store?.currency ?? "GHS"}</span>
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsPayoutSetupOpen(true)}>
+                  <Banknote className="w-4 h-4 mr-2 text-emerald-500" />
+                  Payout Details
+                  {(store as { paystackAccountNumber?: string | null } | undefined)?.paystackAccountNumber && (
+                    <span className="ml-auto w-2 h-2 rounded-full bg-green-500" />
+                  )}
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={handleLogout}
@@ -610,7 +675,26 @@ export default function Dashboard() {
         onUpdateOrderStatus={handleUpdateOrderStatus}
         isUpdatePending={updateOrderMutation.isPending}
         onLogOrderOpen={() => setIsLogOrderOpen(true)}
+        onShipOrder={handleShipOrder}
+        onReleaseFunds={handleReleaseFunds}
+        shippingOrderId={shippingOrderId}
+        releasingOrderId={releasingOrderId}
       />
+      {store?.slug && (
+        <PayoutSetupDialog
+          open={isPayoutSetupOpen}
+          onOpenChange={setIsPayoutSetupOpen}
+          storeSlug={store.slug}
+          storeCurrency={store.currency || "GHS"}
+          existing={{
+            bankCode: (store as { paystackBankCode?: string | null }).paystackBankCode ?? null,
+            accountNumber: (store as { paystackAccountNumber?: string | null }).paystackAccountNumber ?? null,
+            accountName: (store as { paystackAccountName?: string | null }).paystackAccountName ?? null,
+            recipientCode: (store as { paystackRecipientCode?: string | null }).paystackRecipientCode ?? null,
+          }}
+          onSaved={() => queryClient.invalidateQueries({ queryKey: getGetStoreBySlugQueryKey(store.slug) })}
+        />
+      )}
     </div>
   );
 }

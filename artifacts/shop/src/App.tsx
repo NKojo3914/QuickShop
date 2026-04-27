@@ -8,6 +8,7 @@ import Dashboard from "@/pages/dashboard";
 import Storefront from "@/pages/storefront";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
+import PayCallback from "@/pages/pay-callback";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 const queryClient = new QueryClient();
@@ -19,9 +20,10 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       <Route path="/manage/:slug">
-        {(params) => <ProtectedRoute component={Dashboard} params={params} />}
+        {(params: StringRouteParams<"/manage/:slug">) => <ProtectedRoute component={Dashboard} params={params} />}
       </Route>
       <Route path="/store/:slug" component={Storefront} />
+      <Route path="/pay/callback" component={PayCallback} />
       <Route component={NotFound} />
     </Switch>
   );

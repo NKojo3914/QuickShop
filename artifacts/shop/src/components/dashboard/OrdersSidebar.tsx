@@ -7,8 +7,12 @@ import {
   User,
   Phone,
   PackageX,
+  Truck,
+  Banknote,
+  Loader2,
+  ShieldCheck,
 } from "lucide-react";
-import type { Order } from "@workspace/api-client-react";
+import type { Order as BaseOrder } from "@workspace/api-client-react";
 import {
   Sheet,
   SheetContent,
@@ -20,8 +24,52 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
+// The DB has more fields than the generated OpenAPI Order type — extend it
+// here so we can render payment / escrow state without regenerating.
+type Order = BaseOrder & {
+  customerPhone?: string | null;
+  source?: string | null;
+  amount?: string | null;
+  currency?: string | null;
+  paymentStatus?: string | null;
+  paidAt?: string | null;
+  shippedAt?: string | null;
+  receivedAt?: string | null;
+  releasedAt?: string | null;
+  payoutStatus?: string | null;
+  platformFee?: string | null;
+};
+
 function orderRef(id: number) {
   return `QS-${String(id).padStart(4, "0")}`;
+}
+
+function PaymentBadge({ order }: { order: Order }) {
+  const status = order.paymentStatus || "unpaid";
+  const cur = order.currency || "GHS";
+  const amt = order.amount;
+  if (status === "paid") {
+    return (
+      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 flex items-center gap-1">
+        <ShieldCheck className="w-2.5 h-2.5" /> Paid {amt ? `${cur} ${amt}` : ""}
+      </span>
+    );
+  }
+  if (status === "pending") {
+    return (
+      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-950/40 dark:text-yellow-400">
+        Awaiting payment
+      </span>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400">
+        Payment failed
+      </span>
+    );
+  }
+  return null; // "unpaid" — show nothing (legacy non-escrow orders)
 }
 
 export interface OrdersSidebarProps {
@@ -34,6 +82,10 @@ export interface OrdersSidebarProps {
   onUpdateOrderStatus: (orderId: number, status: string) => void;
   isUpdatePending: boolean;
   onLogOrderOpen: () => void;
+  onShipOrder?: (orderId: number) => void;
+  onReleaseFunds?: (orderId: number) => void;
+  shippingOrderId?: number | null;
+  releasingOrderId?: number | null;
 }
 
 export function OrdersSidebar({
@@ -46,6 +98,10 @@ export function OrdersSidebar({
   onUpdateOrderStatus,
   isUpdatePending,
   onLogOrderOpen,
+  onShipOrder,
+  onReleaseFunds,
+  shippingOrderId,
+  releasingOrderId,
 }: OrdersSidebarProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -126,6 +182,7 @@ export function OrdersSidebar({
                         <div className="flex flex-col items-end gap-1 shrink-0">
                           <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">Pending</span>
                           <span className="text-[10px] font-mono text-muted-foreground">{orderRef(order.id)}</span>
+                          <PaymentBadge order={order} />
                         </div>
                       </div>
                       <p
@@ -169,7 +226,12 @@ export function OrdersSidebar({
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {orders!.filter(o => o.status === "confirmed").map(order => (
+                  {orders!.filter(o => o.status === "confirmed").map(order => {
+                    const isPaid = order.paymentStatus === "paid";
+                    const isShipped = !!order.shippedAt;
+                    const isShipping = shippingOrderId === order.id;
+                    const isReleasing = releasingOrderId === order.id;
+                    return (
                     <div key={order.id} className="bg-card border rounded-xl p-3.5 flex flex-col gap-2 shadow-sm">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex flex-col min-w-0">
@@ -186,17 +248,42 @@ export function OrdersSidebar({
                         <div className="flex flex-col items-end gap-1 shrink-0">
                           <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400">Confirmed</span>
                           <span className="text-[10px] font-mono text-muted-foreground">{orderRef(order.id)}</span>
+                          <PaymentBadge order={order} />
+                          {isShipped && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400 flex items-center gap-1">
+                              <Truck className="w-2.5 h-2.5" /> Shipped
+                            </span>
+                          )}
                         </div>
                       </div>
                       <p
                         className={`text-xs text-muted-foreground cursor-pointer ${expandedOrderId === order.id ? "" : "line-clamp-2"}`}
                         onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
                       >{order.summary}</p>
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
                         <span className="text-xs text-muted-foreground/60 flex items-center gap-1">
                           <Clock className="w-3 h-3" />{new Date(order.createdAt).toLocaleString()}
                         </span>
-                        <div className="flex gap-1.5">
+                        <div className="flex gap-1.5 flex-wrap">
+                          {/* Escrow flow buttons — only show when payment was actually taken */}
+                          {isPaid && !isShipped && onShipOrder && (
+                            <Button size="sm" variant="outline"
+                              className="h-7 text-xs rounded-full px-3 text-indigo-600 border-indigo-300 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
+                              onClick={() => onShipOrder(order.id)}
+                              disabled={isShipping}>
+                              {isShipping ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Truck className="w-3 h-3 mr-1" />}
+                              Mark Shipped
+                            </Button>
+                          )}
+                          {isPaid && isShipped && !order.releasedAt && onReleaseFunds && (
+                            <Button size="sm" variant="outline"
+                              className="h-7 text-xs rounded-full px-3 text-emerald-600 border-emerald-300 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+                              onClick={() => onReleaseFunds(order.id)}
+                              disabled={isReleasing}>
+                              {isReleasing ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Banknote className="w-3 h-3 mr-1" />}
+                              Release Funds
+                            </Button>
+                          )}
                           <Button size="sm" variant="outline"
                             className="h-7 text-xs rounded-full px-3 text-red-500 border-red-200 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
                             onClick={() => onUpdateOrderStatus(order.id, "cancelled")}
@@ -212,7 +299,8 @@ export function OrdersSidebar({
                         </div>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </TabsContent>
@@ -254,6 +342,11 @@ export function OrdersSidebar({
                             </span>
                           )}
                           <span className="text-[10px] font-mono text-muted-foreground">{orderRef(order.id)}</span>
+                          {order.releasedAt && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 flex items-center gap-1">
+                              <Banknote className="w-2.5 h-2.5" /> Paid out
+                            </span>
+                          )}
                         </div>
                       </div>
                       <p
