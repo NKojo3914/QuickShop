@@ -547,7 +547,7 @@ export async function processTelegramUpdate(
           const baseUrl = process.env.PUBLIC_BASE_URL || "https://quickshop.local";
           const init = await initTransaction({
             amount: parsedAmount,
-            email: `order-${newOrder.id}@quickshop.local`,
+            email: `order-${newOrder.id}@quickshop.app`,
             reference: paymentRef,
             currency,
             callbackUrl: `${baseUrl}/pay/callback?orderId=${newOrder.id}`,

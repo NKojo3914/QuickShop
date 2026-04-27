@@ -148,7 +148,7 @@ router.post("/payments/init", async (req, res): Promise<void> => {
   const buyerEmail =
     email && /\S+@\S+\.\S+/.test(email)
       ? email
-      : `order-${order.id}@quickshop.local`;
+      : `order-${order.id}@quickshop.app`;
 
   try {
     const init = await initTransaction({
