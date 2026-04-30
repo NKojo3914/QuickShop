@@ -5,6 +5,8 @@ import {
   initTransaction,
   generatePaymentReference,
   parseTotalFromSummary,
+  calcTotalCharged,
+  generateDeliveryCode,
 } from "./paystack";
 
 type MessageRow = typeof messages.$inferSelect;
@@ -543,21 +545,33 @@ export async function processTelegramUpdate(
       let paymentLine = "";
       if (process.env.PAYSTACK_SECRET_KEY && parsedAmount && parsedAmount > 0) {
         try {
+          const deliveryFee = parseFloat((store.deliveryFee ?? "0") as unknown as string) || 0;
+          const { platformFee, totalCharged } = calcTotalCharged(parsedAmount, deliveryFee);
           const paymentRef = generatePaymentReference(newOrder.id);
           const baseUrl = process.env.PUBLIC_BASE_URL || "https://quickshop.local";
           const init = await initTransaction({
-            amount: parsedAmount,
+            amount: totalCharged,
             email: `order-${newOrder.id}@quickshop.app`,
             reference: paymentRef,
             currency,
             callbackUrl: `${baseUrl}/pay/callback?orderId=${newOrder.id}`,
-            metadata: { orderId: newOrder.id, storeId, storeSlug: store.slug },
+            metadata: { orderId: newOrder.id, storeId, storeSlug: store.slug, productAmount: parsedAmount, deliveryFee, platformFee },
           });
           await db
             .update(ordersTable)
-            .set({ paymentReference: paymentRef, paymentStatus: "pending" })
+            .set({
+              paymentReference: paymentRef,
+              paymentStatus: "pending",
+              deliveryFee: deliveryFee.toFixed(2),
+              platformFee: platformFee.toFixed(2),
+              totalCharged: totalCharged.toFixed(2),
+            })
             .where(eq(ordersTable.id, newOrder.id));
-          paymentLine = `\n\n💳 *Pay securely now to lock in your order:*\n${init.authorization_url}\n\nWe hold your payment in escrow and only release it to *${store.name}* after you receive your item.`;
+
+          const feeLine = deliveryFee > 0
+            ? `\n_(Includes GHS ${deliveryFee.toFixed(2)} delivery + ${platformFee.toFixed(2)} platform fee)_`
+            : `\n_(Includes GHS ${platformFee.toFixed(2)} platform fee)_`;
+          paymentLine = `\n\n💳 *Pay securely now to lock in your order:*\n${init.authorization_url}${feeLine}\n\nWe hold your payment in escrow and only release it to *${store.name}* after you receive your item.`;
         } catch (err) {
           log.warn({ err }, "Paystack init failed; falling back to no-payment flow");
         }
