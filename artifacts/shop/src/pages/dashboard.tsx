@@ -77,6 +77,7 @@ const storeSettingsSchema = z.object({
   name: z.string().min(2, "Store name must be at least 2 characters"),
   whatsappNumber: z.string().min(10, "Please enter a valid WhatsApp number"),
   description: z.string().max(200, "Max 200 characters").optional(),
+  deliveryFee: z.string().optional(),
 });
 type StoreSettingsFormValues = z.infer<typeof storeSettingsSchema>;
 
@@ -161,7 +162,7 @@ export default function Dashboard() {
   const [isQrOpen, setIsQrOpen] = useState(false);
   const [isPayoutSetupOpen, setIsPayoutSetupOpen] = useState(false);
   const [shippingOrderId, setShippingOrderId] = useState<number | null>(null);
-  const [releasingOrderId, setReleasingOrderId] = useState<number | null>(null);
+  const [verifyingOrderId, setVerifyingOrderId] = useState<number | null>(null);
 
   // ── Form-level state ──────────────────────────────────────────────────────
   const [telegramToken, setTelegramToken] = useState("");
@@ -176,7 +177,7 @@ export default function Dashboard() {
   // ── Forms ─────────────────────────────────────────────────────────────────
   const storeSettingsForm = useForm<StoreSettingsFormValues>({
     resolver: zodResolver(storeSettingsSchema),
-    defaultValues: { name: "", whatsappNumber: "", description: "" },
+    defaultValues: { name: "", whatsappNumber: "", description: "", deliveryFee: "" },
   });
   const productForm = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
@@ -198,6 +199,7 @@ export default function Dashboard() {
         name: store.name,
         whatsappNumber: store.whatsappNumber,
         description: store.description || "",
+        deliveryFee: (store as { deliveryFee?: string | null }).deliveryFee ?? "0",
       });
     }
   }, [store]);
@@ -242,32 +244,32 @@ export default function Dashboard() {
     }
   };
 
-  const handleReleaseFunds = async (orderId: number) => {
-    setReleasingOrderId(orderId);
+  const handleVerifyDelivery = async (orderId: number, code: string) => {
+    setVerifyingOrderId(orderId);
     try {
-      const res = await fetch(`/api/orders/${orderId}/release`, {
+      const res = await fetch(`/api/orders/${orderId}/verify-delivery`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ code }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to release funds");
+      const data = await res.json() as { error?: string; payout?: number; currency?: string };
+      if (!res.ok) throw new Error(data.error || "Failed to verify delivery code");
       toast({
-        title: "Funds released",
+        title: "Delivery confirmed!",
         description: data.payout
-          ? `Payout of ${data.currency || store?.currency || "GHS"} ${data.payout} sent (${data.platformFeePct}% fee).`
-          : "Transfer initiated.",
+          ? `${data.currency || store?.currency || "GHS"} ${data.payout} sent to your account.`
+          : "Funds released to seller.",
       });
       queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey(store?.id || 0) });
     } catch (err) {
       toast({
         variant: "destructive",
-        title: "Release failed",
+        title: "Code verification failed",
         description: err instanceof Error ? err.message : String(err),
       });
     } finally {
-      setReleasingOrderId(null);
+      setVerifyingOrderId(null);
     }
   };
 
@@ -330,7 +332,15 @@ export default function Dashboard() {
     try {
       await updateStoreMutation.mutateAsync({
         slug: store.slug,
-        data: { ...data, logoUrl: logoUrl || undefined },
+        data: {
+          name: data.name,
+          whatsappNumber: data.whatsappNumber,
+          description: data.description,
+          logoUrl: logoUrl || undefined,
+          ...(data.deliveryFee !== undefined && data.deliveryFee !== ""
+            ? { deliveryFee: data.deliveryFee }
+            : {}),
+        },
       });
       queryClient.invalidateQueries({ queryKey: getGetStoreBySlugQueryKey(store.slug) });
       toast({ title: "Store updated!" });
@@ -625,6 +635,7 @@ export default function Dashboard() {
         handleLogoUpload={handleLogoUpload}
         logoInputRef={logoInputRef}
         isUpdatePending={updateStoreMutation.isPending}
+        storeCurrency={store?.currency}
       />
       <TelegramSettingsDialog
         open={isTelegramSettingsOpen}
@@ -676,9 +687,10 @@ export default function Dashboard() {
         isUpdatePending={updateOrderMutation.isPending}
         onLogOrderOpen={() => setIsLogOrderOpen(true)}
         onShipOrder={handleShipOrder}
-        onReleaseFunds={handleReleaseFunds}
+        onVerifyDelivery={handleVerifyDelivery}
         shippingOrderId={shippingOrderId}
-        releasingOrderId={releasingOrderId}
+        verifyingOrderId={verifyingOrderId}
+        storeCurrency={store?.currency}
       />
       {store?.slug && (
         <PayoutSetupDialog

@@ -208,21 +208,57 @@ export function verifyWebhookSignature(rawBody: string | Buffer, signature: stri
 
 // ── Misc helpers ─────────────────────────────────────────────────────────────
 
-export function platformFeePct(): number {
-  const raw = process.env.PLATFORM_FEE_PCT;
-  if (!raw) return 1;
-  const n = parseFloat(raw);
-  return Number.isFinite(n) && n >= 0 ? n : 1;
+/** QuickShop's platform fee percentage (charged to buyer on top of product price). */
+export const PLATFORM_FEE_PCT = 1; // 1% — Paystack takes ~1.5%, buyer pays 2.5% total
+
+/**
+ * Calculate the platform fee on a product amount.
+ * Returns fee in major units, rounded to 2 d.p.
+ */
+export function calcPlatformFee(productAmount: number): number {
+  return Math.round(productAmount * (PLATFORM_FEE_PCT / 100) * 100) / 100;
 }
 
 /**
- * Calculate the seller's payout after deducting QuickShop's cut.
- * Returns { fee, payout } in major units, both rounded to 2 d.p.
+ * Calculate the total the buyer pays:
+ *   product + deliveryFee + platformFee (1% of product)
  */
+export function calcTotalCharged(productAmount: number, deliveryFee: number): {
+  platformFee: number;
+  totalCharged: number;
+} {
+  const platformFee = calcPlatformFee(productAmount);
+  const totalCharged = Math.round((productAmount + deliveryFee + platformFee) * 100) / 100;
+  return { platformFee, totalCharged };
+}
+
+/**
+ * Calculate the vendor payout (product + delivery — QuickShop keeps platformFee).
+ */
+export function calcVendorPayout(productAmount: number, deliveryFee: number): number {
+  return Math.round((productAmount + deliveryFee) * 100) / 100;
+}
+
+/** @deprecated Use calcPlatformFee / calcTotalCharged instead */
+export function platformFeePct(): number { return PLATFORM_FEE_PCT; }
+
+/** @deprecated Use calcPlatformFee / calcTotalCharged instead */
 export function calcSplit(amount: number): { fee: number; payout: number } {
-  const fee = Math.round(amount * (platformFeePct() / 100) * 100) / 100;
+  const fee = calcPlatformFee(amount);
   const payout = Math.round((amount - fee) * 100) / 100;
   return { fee, payout };
+}
+
+/**
+ * Generate a cryptographically random 6-digit delivery code.
+ * The buyer receives this on payment and shares it with the delivery person
+ * only when they have the item in hand. The seller enters it to release escrow.
+ */
+export function generateDeliveryCode(): string {
+  // Use crypto to avoid Math.random() bias
+  const buf = crypto.randomBytes(3); // 3 bytes = 0–16777215
+  const n = buf.readUIntBE(0, 3) % 1_000_000;
+  return String(n).padStart(6, "0");
 }
 
 /**

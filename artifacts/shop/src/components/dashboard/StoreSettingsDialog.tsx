@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { SlidersHorizontal, ShoppingBag, Loader2, Image as ImageIcon, Phone } from "lucide-react";
+import { SlidersHorizontal, ShoppingBag, Loader2, Image as ImageIcon, Phone, Truck } from "lucide-react";
 import type { UseFormReturn } from "react-hook-form";
 import {
   Dialog,
@@ -25,6 +25,7 @@ interface StoreSettingsFormValues {
   name: string;
   whatsappNumber: string;
   description?: string;
+  deliveryFee?: string;
 }
 
 export interface StoreSettingsDialogProps {
@@ -38,6 +39,7 @@ export interface StoreSettingsDialogProps {
   handleLogoUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   logoInputRef: React.RefObject<HTMLInputElement | null>;
   isUpdatePending: boolean;
+  storeCurrency?: string | null;
 }
 
 export function StoreSettingsDialog({
@@ -51,6 +53,7 @@ export function StoreSettingsDialog({
   handleLogoUpload,
   logoInputRef,
   isUpdatePending,
+  storeCurrency,
 }: StoreSettingsDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -125,6 +128,37 @@ export function StoreSettingsDialog({
                       <Input placeholder="+233XXXXXXXXX" className="rounded-l-none" {...field} />
                     </div>
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="deliveryFee"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center gap-1.5">
+                    <Truck className="w-3.5 h-3.5" />
+                    Delivery Fee <span className="text-muted-foreground font-normal">(flat rate per order)</span>
+                  </FormLabel>
+                  <FormControl>
+                    <div className="flex items-center">
+                      <span className="text-muted-foreground bg-muted px-3 py-2 text-sm border border-r-0 rounded-l-md select-none font-medium">
+                        {storeCurrency || "GHS"}
+                      </span>
+                      <Input
+                        placeholder="0.00"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className="rounded-l-none"
+                        {...field}
+                      />
+                    </div>
+                  </FormControl>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Added to every Telegram order payment. Non-refundable if buyer is unavailable at delivery. Set to 0 for free delivery.
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}

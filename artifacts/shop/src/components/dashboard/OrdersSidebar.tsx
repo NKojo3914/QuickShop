@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Package,
   MessageCircle,
@@ -11,7 +12,9 @@ import {
   Banknote,
   Loader2,
   ShieldCheck,
+  KeyRound,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import type { Order as BaseOrder } from "@workspace/api-client-react";
 import {
   Sheet,
@@ -30,6 +33,9 @@ type Order = BaseOrder & {
   customerPhone?: string | null;
   source?: string | null;
   amount?: string | null;
+  deliveryFee?: string | null;
+  platformFee?: string | null;
+  totalCharged?: string | null;
   currency?: string | null;
   paymentStatus?: string | null;
   paidAt?: string | null;
@@ -37,7 +43,11 @@ type Order = BaseOrder & {
   receivedAt?: string | null;
   releasedAt?: string | null;
   payoutStatus?: string | null;
-  platformFee?: string | null;
+  deliveryCode?: string | null;
+  deliveryCodeVerifiedAt?: string | null;
+  autoReleaseAt?: string | null;
+  refundedAt?: string | null;
+  refundReference?: string | null;
 };
 
 function orderRef(id: number) {
@@ -83,9 +93,10 @@ export interface OrdersSidebarProps {
   isUpdatePending: boolean;
   onLogOrderOpen: () => void;
   onShipOrder?: (orderId: number) => void;
-  onReleaseFunds?: (orderId: number) => void;
+  onVerifyDelivery?: (orderId: number, code: string) => void;
   shippingOrderId?: number | null;
-  releasingOrderId?: number | null;
+  verifyingOrderId?: number | null;
+  storeCurrency?: string | null;
 }
 
 export function OrdersSidebar({
@@ -99,10 +110,12 @@ export function OrdersSidebar({
   isUpdatePending,
   onLogOrderOpen,
   onShipOrder,
-  onReleaseFunds,
+  onVerifyDelivery,
   shippingOrderId,
-  releasingOrderId,
+  verifyingOrderId,
+  storeCurrency,
 }: OrdersSidebarProps) {
+  const [deliveryCodes, setDeliveryCodes] = useState<Record<number, string>>({});
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:w-[420px] p-0 flex flex-col [&>button:first-of-type]:hidden">
@@ -229,8 +242,10 @@ export function OrdersSidebar({
                   {orders!.filter(o => o.status === "confirmed").map(order => {
                     const isPaid = order.paymentStatus === "paid";
                     const isShipped = !!order.shippedAt;
+                    const isReleased = !!order.releasedAt;
                     const isShipping = shippingOrderId === order.id;
-                    const isReleasing = releasingOrderId === order.id;
+                    const isVerifying = verifyingOrderId === order.id;
+                    const cur = order.currency || storeCurrency || "GHS";
                     return (
                     <div key={order.id} className="bg-card border rounded-xl p-3.5 flex flex-col gap-2 shadow-sm">
                       <div className="flex items-start justify-between gap-2">
@@ -256,16 +271,63 @@ export function OrdersSidebar({
                           )}
                         </div>
                       </div>
+
+                      {/* Pricing breakdown for escrow orders */}
+                      {isPaid && order.amount && (
+                        <div className="text-[10px] text-muted-foreground bg-muted/40 rounded-lg px-2.5 py-1.5 space-y-0.5">
+                          <div className="flex justify-between"><span>Item</span><span>{cur} {parseFloat(order.amount as unknown as string).toFixed(2)}</span></div>
+                          {order.deliveryFee && parseFloat(order.deliveryFee as unknown as string) > 0 && (
+                            <div className="flex justify-between"><span>Delivery</span><span>{cur} {parseFloat(order.deliveryFee as unknown as string).toFixed(2)}</span></div>
+                          )}
+                          {order.platformFee && (
+                            <div className="flex justify-between"><span>Platform fee (1%)</span><span>{cur} {parseFloat(order.platformFee as unknown as string).toFixed(2)}</span></div>
+                          )}
+                          {order.totalCharged && (
+                            <div className="flex justify-between font-semibold border-t border-border/50 pt-0.5 mt-0.5">
+                              <span>Total paid</span><span>{cur} {parseFloat(order.totalCharged as unknown as string).toFixed(2)}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       <p
                         className={`text-xs text-muted-foreground cursor-pointer ${expandedOrderId === order.id ? "" : "line-clamp-2"}`}
                         onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
                       >{order.summary}</p>
+
+                      {/* Delivery code entry — shows after shipping, before release */}
+                      {isPaid && isShipped && !isReleased && onVerifyDelivery && (
+                        <div className="flex gap-1.5 items-center pt-1">
+                          <div className="relative flex-1">
+                            <KeyRound className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                            <Input
+                              className="h-8 text-sm pl-8 font-mono tracking-widest"
+                              placeholder="6-digit code"
+                              maxLength={6}
+                              value={deliveryCodes[order.id] || ""}
+                              onChange={e => setDeliveryCodes(prev => ({ ...prev, [order.id]: e.target.value.replace(/\D/g, "").slice(0, 6) }))}
+                            />
+                          </div>
+                          <Button
+                            size="sm"
+                            className="h-8 text-xs rounded-full px-3 bg-emerald-600 hover:bg-emerald-700 text-white"
+                            onClick={() => onVerifyDelivery(order.id, deliveryCodes[order.id] || "")}
+                            disabled={isVerifying || (deliveryCodes[order.id] || "").length !== 6}>
+                            {isVerifying ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Banknote className="w-3 h-3 mr-1" />Release</>}
+                          </Button>
+                        </div>
+                      )}
+                      {isPaid && isReleased && (
+                        <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                          <ShieldCheck className="w-3.5 h-3.5" /> Funds released to seller
+                        </div>
+                      )}
+
                       <div className="flex items-center justify-between flex-wrap gap-2">
                         <span className="text-xs text-muted-foreground/60 flex items-center gap-1">
                           <Clock className="w-3 h-3" />{new Date(order.createdAt).toLocaleString()}
                         </span>
                         <div className="flex gap-1.5 flex-wrap">
-                          {/* Escrow flow buttons — only show when payment was actually taken */}
                           {isPaid && !isShipped && onShipOrder && (
                             <Button size="sm" variant="outline"
                               className="h-7 text-xs rounded-full px-3 text-indigo-600 border-indigo-300 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
@@ -275,27 +337,22 @@ export function OrdersSidebar({
                               Mark Shipped
                             </Button>
                           )}
-                          {isPaid && isShipped && !order.releasedAt && onReleaseFunds && (
-                            <Button size="sm" variant="outline"
-                              className="h-7 text-xs rounded-full px-3 text-emerald-600 border-emerald-300 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
-                              onClick={() => onReleaseFunds(order.id)}
-                              disabled={isReleasing}>
-                              {isReleasing ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Banknote className="w-3 h-3 mr-1" />}
-                              Release Funds
-                            </Button>
+                          {!isPaid && (
+                            <>
+                              <Button size="sm" variant="outline"
+                                className="h-7 text-xs rounded-full px-3 text-red-500 border-red-200 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                                onClick={() => onUpdateOrderStatus(order.id, "cancelled")}
+                                disabled={isUpdatePending}>
+                                <PackageX className="w-3 h-3 mr-1" /> Cancel
+                              </Button>
+                              <Button size="sm" variant="outline"
+                                className="h-7 text-xs rounded-full px-3 text-green-600 border-green-300 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/40"
+                                onClick={() => onUpdateOrderStatus(order.id, "completed")}
+                                disabled={isUpdatePending}>
+                                <CheckCircle2 className="w-3 h-3 mr-1" /> Complete
+                              </Button>
+                            </>
                           )}
-                          <Button size="sm" variant="outline"
-                            className="h-7 text-xs rounded-full px-3 text-red-500 border-red-200 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-                            onClick={() => onUpdateOrderStatus(order.id, "cancelled")}
-                            disabled={isUpdatePending}>
-                            <PackageX className="w-3 h-3 mr-1" /> Cancel
-                          </Button>
-                          <Button size="sm" variant="outline"
-                            className="h-7 text-xs rounded-full px-3 text-green-600 border-green-300 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/40"
-                            onClick={() => onUpdateOrderStatus(order.id, "completed")}
-                            disabled={isUpdatePending}>
-                            <CheckCircle2 className="w-3 h-3 mr-1" /> Complete
-                          </Button>
                         </div>
                       </div>
                     </div>

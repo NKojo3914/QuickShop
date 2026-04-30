@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { sellersTable } from "./sellers";
@@ -16,15 +16,25 @@ export const storesTable = pgTable("stores", {
   currency: text("currency").notNull().default("GHS"),
   sellerId: integer("seller_id").references(() => sellersTable.id, { onDelete: "set null" }),
 
-  // ── Payout / Paystack escrow ───────────────────────────────────────────────
-  // Paystack bank/MoMo code returned from /bank?currency=GHS (e.g. "MTN" for MoMo).
+  // ── Delivery ──────────────────────────────────────────────────────────────
+  // Flat delivery fee added to every Telegram order payment link.
+  // Sellers set this in Store Settings. 0 = free delivery.
+  deliveryFee: numeric("delivery_fee", { precision: 12, scale: 2 }).default("0"),
+
+  // ── Paystack payout ────────────────────────────────────────────────────────
   paystackBankCode: text("paystack_bank_code"),
-  // The seller's account or MoMo number to pay out to.
   paystackAccountNumber: text("paystack_account_number"),
   paystackAccountName: text("paystack_account_name"),
-  // Paystack transfer-recipient code created from the bank details above —
-  // required to initiate transfers when releasing escrow.
   paystackRecipientCode: text("paystack_recipient_code"),
+
+  // ── Vendor security deposit ────────────────────────────────────────────────
+  // GHS 50 held as security. Deducted when vendor ghosts a buyer.
+  // Topped up via a Paystack transaction. Suspended if balance < 0.
+  vendorDeposit: numeric("vendor_deposit", { precision: 12, scale: 2 }).default("0"),
+  vendorDepositPaidAt: timestamp("vendor_deposit_paid_at", { withTimezone: true }),
+  vendorDepositReference: text("vendor_deposit_reference"),
+  // Accumulated debt owed to platform (when deposit runs out).
+  vendorDebt: numeric("vendor_debt", { precision: 12, scale: 2 }).default("0"),
 
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
