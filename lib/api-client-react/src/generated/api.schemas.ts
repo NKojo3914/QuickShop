@@ -51,6 +51,7 @@ export interface UpdateStoreBody {
   telegramBotUsername?: string;
   sellerTelegramChatId?: string;
   currency?: string;
+  deliveryFee?: string;
 }
 
 export interface Product {

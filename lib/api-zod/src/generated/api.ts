@@ -102,6 +102,7 @@ export const UpdateStoreBody = zod.object({
   telegramBotUsername: zod.string().optional(),
   sellerTelegramChatId: zod.string().optional(),
   currency: zod.string().optional(),
+  deliveryFee: zod.string().optional(),
 });
 
 export const UpdateStoreResponse = zod.object({
@@ -115,6 +116,7 @@ export const UpdateStoreResponse = zod.object({
   telegramBotUsername: zod.string().nullish(),
   sellerTelegramChatId: zod.string().nullish(),
   currency: zod.string(),
+  deliveryFee: zod.string().nullish(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
 });

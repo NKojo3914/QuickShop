@@ -298,14 +298,33 @@ router.post("/orders/:id/verify-delivery", requireAuth, async (req, res): Promis
   }
 
   const { code } = req.body as { code?: string };
+
+  // If deliveryCode was never generated (order paid before this feature was deployed),
+  // log and fall back to a manual release so existing orders aren't permanently stuck.
+  if (!order.deliveryCode) {
+    try {
+      const result = await releaseFundsToVendor(order, store, "manual");
+      res.json(result);
+    } catch (err) {
+      console.error("verify-delivery fallback release error:", err);
+      res.status(502).json({ error: err instanceof Error ? err.message : "Release failed" });
+    }
+    return;
+  }
+
   if (!code || code.trim() !== order.deliveryCode) {
     res.status(400).json({ error: "Incorrect delivery code. Ask the buyer for their 6-digit code." });
     return;
   }
 
   // Code correct → release escrow to vendor
-  const result = await releaseFundsToVendor(order, store, "delivery_code");
-  res.json(result);
+  try {
+    const result = await releaseFundsToVendor(order, store, "delivery_code");
+    res.json(result);
+  } catch (err) {
+    console.error("verify-delivery release error:", err);
+    res.status(502).json({ error: err instanceof Error ? err.message : "Release failed" });
+  }
 });
 
 // ─── Refund buyer (vendor ghost) ──────────────────────────────────────────────
