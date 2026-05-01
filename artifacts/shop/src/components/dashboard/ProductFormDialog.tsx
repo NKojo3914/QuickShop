@@ -34,6 +34,7 @@ export interface ProductFormValues {
   floorPrice?: string;
   imageUrl?: string;
   category?: string;
+  inStock: boolean;
   hasVariants: boolean;
   variants: VariantRow[];
 }
@@ -270,6 +271,33 @@ export function ProductFormDialog({
                 </FormItem>
               )}
             />
+
+            {/* In-stock toggle — only shown when not using per-variant stock */}
+            {!hasVariants && (
+              <FormField
+                control={form.control}
+                name="inStock"
+                render={({ field }) => (
+                  <FormItem>
+                    <div className="flex items-center justify-between rounded-2xl border px-4 py-3 bg-muted/30">
+                      <div>
+                        <FormLabel className="text-base font-semibold">
+                          {field.value ? "In Stock" : "Out of Stock"}
+                        </FormLabel>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {field.value
+                            ? "Customers can add this item to their cart"
+                            : "Item won't be purchasable on the storefront"}
+                        </p>
+                      </div>
+                      <FormControl>
+                        <Switch checked={field.value} onCheckedChange={field.onChange} />
+                      </FormControl>
+                    </div>
+                  </FormItem>
+                )}
+              />
+            )}
 
             {/* Variants toggle */}
             <div className="border rounded-2xl p-4 space-y-4 bg-muted/30">

@@ -76,6 +76,7 @@ const productSchema = z.object({
   floorPrice: z.string().optional(),
   imageUrl: z.string().optional(),
   category: z.string().optional(),
+  inStock: z.boolean(),
   hasVariants: z.boolean(),
   variants: z.array(variantRowSchema),
 });
@@ -189,7 +190,7 @@ export default function Dashboard() {
   });
   const productForm = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
-    defaultValues: { name: "", description: "", price: "", floorPrice: "", imageUrl: "", category: "", hasVariants: false, variants: [] },
+    defaultValues: { name: "", description: "", price: "", floorPrice: "", imageUrl: "", category: "", inStock: true, hasVariants: false, variants: [] },
   });
   const logOrderForm = useForm<LogOrderFormValues>({
     resolver: zodResolver(logOrderSchema),
@@ -390,7 +391,7 @@ export default function Dashboard() {
   };
 
   const openCreateModal = () => {
-    productForm.reset({ name: "", description: "", price: "", floorPrice: "", imageUrl: "", category: "", hasVariants: false, variants: [] });
+    productForm.reset({ name: "", description: "", price: "", floorPrice: "", imageUrl: "", category: "", inStock: true, hasVariants: false, variants: [] });
     setEditingProductId(null);
     setIsProductModalOpen(true);
   };
@@ -408,6 +409,7 @@ export default function Dashboard() {
       floorPrice: product.floorPrice || "",
       imageUrl: product.imageUrl || "",
       category: productWithVariants.category || "",
+      inStock: product.inStock,
       hasVariants: productWithVariants.hasVariants ?? false,
       variants: (productWithVariants.variants ?? []).map(v => ({ label: v.label, inStock: v.inStock })),
     });
@@ -421,6 +423,7 @@ export default function Dashboard() {
       ...data,
       floorPrice: data.floorPrice?.trim() || undefined,
       category: data.category?.trim() || undefined,
+      inStock: data.hasVariants ? undefined : data.inStock,
       variants: data.hasVariants
         ? data.variants.filter((v: VariantRow) => v.label.trim()).map((v: VariantRow, i: number) => ({ label: v.label.trim(), inStock: v.inStock, sortOrder: i }))
         : [],
