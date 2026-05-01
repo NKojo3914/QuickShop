@@ -12,6 +12,10 @@ export const productsTable = pgTable("products", {
   floorPrice: numeric("floor_price", { precision: 10, scale: 2 }),
   imageUrl: text("image_url"),
   inStock: boolean("in_stock").notNull().default(true),
+  // Category for display grouping (e.g. "Footwear", "Clothing", "Accessories")
+  category: text("category"),
+  // When true, stock is tracked per variant via product_variants table
+  hasVariants: boolean("has_variants").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

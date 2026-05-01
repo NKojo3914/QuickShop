@@ -584,6 +584,42 @@ components:
         deliveryFee:
           type: string
 
+    ProductVariant:
+      type: object
+      properties:
+        id:
+          type: integer
+        productId:
+          type: integer
+        label:
+          type: string
+        inStock:
+          type: boolean
+        sortOrder:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - productId
+        - label
+        - inStock
+        - sortOrder
+        - createdAt
+
+    ProductVariantInput:
+      type: object
+      properties:
+        label:
+          type: string
+        inStock:
+          type: boolean
+        sortOrder:
+          type: integer
+      required:
+        - label
+
     Product:
       type: object
       properties:
@@ -603,6 +639,14 @@ components:
           type: boolean
         floorPrice:
           type: ["string", "null"]
+        category:
+          type: ["string", "null"]
+        hasVariants:
+          type: boolean
+        variants:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductVariant"
         createdAt:
           type: string
           format: date-time
@@ -615,6 +659,8 @@ components:
         - name
         - price
         - inStock
+        - hasVariants
+        - variants
         - createdAt
         - updatedAt
 
@@ -633,6 +679,14 @@ components:
           type: boolean
         floorPrice:
           type: string
+        category:
+          type: string
+        hasVariants:
+          type: boolean
+        variants:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductVariantInput"
       required:
         - name
         - price
@@ -652,6 +706,14 @@ components:
           type: boolean
         floorPrice:
           type: string
+        category:
+          type: string
+        hasVariants:
+          type: boolean
+        variants:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductVariantInput"
 
     StoreSummary:
       type: object

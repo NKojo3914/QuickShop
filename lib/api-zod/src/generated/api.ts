@@ -128,6 +128,21 @@ export const ListProductsParams = zod.object({
   storeId: zod.coerce.number(),
 });
 
+export const ProductVariantSchema = zod.object({
+  id: zod.number(),
+  productId: zod.number(),
+  label: zod.string(),
+  inStock: zod.boolean(),
+  sortOrder: zod.number(),
+  createdAt: zod.coerce.date(),
+});
+
+export const ProductVariantInputSchema = zod.object({
+  label: zod.string(),
+  inStock: zod.boolean().optional(),
+  sortOrder: zod.number().optional(),
+});
+
 export const ListProductsResponseItem = zod.object({
   id: zod.number(),
   storeId: zod.number(),
@@ -137,6 +152,9 @@ export const ListProductsResponseItem = zod.object({
   imageUrl: zod.string().nullish(),
   inStock: zod.boolean(),
   floorPrice: zod.string().nullish(),
+  category: zod.string().nullish(),
+  hasVariants: zod.boolean(),
+  variants: zod.array(ProductVariantSchema),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
 });
@@ -156,6 +174,9 @@ export const CreateProductBody = zod.object({
   imageUrl: zod.string().optional(),
   inStock: zod.boolean().optional(),
   floorPrice: zod.string().optional(),
+  category: zod.string().optional(),
+  hasVariants: zod.boolean().optional(),
+  variants: zod.array(ProductVariantInputSchema).optional(),
 });
 
 /**
@@ -174,6 +195,9 @@ export const GetProductResponse = zod.object({
   imageUrl: zod.string().nullish(),
   inStock: zod.boolean(),
   floorPrice: zod.string().nullish(),
+  category: zod.string().nullish(),
+  hasVariants: zod.boolean(),
+  variants: zod.array(ProductVariantSchema),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
 });
@@ -192,6 +216,9 @@ export const UpdateProductBody = zod.object({
   imageUrl: zod.string().optional(),
   inStock: zod.boolean().optional(),
   floorPrice: zod.string().optional(),
+  category: zod.string().optional(),
+  hasVariants: zod.boolean().optional(),
+  variants: zod.array(ProductVariantInputSchema).optional(),
 });
 
 export const UpdateProductResponse = zod.object({
@@ -203,6 +230,9 @@ export const UpdateProductResponse = zod.object({
   imageUrl: zod.string().nullish(),
   inStock: zod.boolean(),
   floorPrice: zod.string().nullish(),
+  category: zod.string().nullish(),
+  hasVariants: zod.boolean(),
+  variants: zod.array(ProductVariantSchema),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
 });

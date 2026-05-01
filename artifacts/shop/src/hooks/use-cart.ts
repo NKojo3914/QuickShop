@@ -6,6 +6,13 @@ export interface CartItem {
   price: string;
   imageUrl?: string | null;
   quantity: number;
+  /** Variant label (e.g. "M", "42", "Red"). Undefined = no variant selected */
+  variantLabel?: string;
+}
+
+/** Unique key per product+variant combination */
+function itemKey(id: number, variantLabel?: string) {
+  return variantLabel ? `${id}:${variantLabel}` : `${id}`;
 }
 
 const STORAGE_KEY = "qs_cart";
@@ -32,23 +39,30 @@ export function useCart(storeSlug: string) {
 
   const addItem = useCallback((product: Omit<CartItem, "quantity">) => {
     setItems(prev => {
-      const existing = prev.find(i => i.id === product.id);
+      const key = itemKey(product.id, product.variantLabel);
+      const existing = prev.find(i => itemKey(i.id, i.variantLabel) === key);
       if (existing) {
-        return prev.map(i => i.id === product.id ? { ...i, quantity: i.quantity + 1 } : i);
+        return prev.map(i =>
+          itemKey(i.id, i.variantLabel) === key ? { ...i, quantity: i.quantity + 1 } : i
+        );
       }
       return [...prev, { ...product, quantity: 1 }];
     });
   }, []);
 
-  const removeItem = useCallback((id: number) => {
-    setItems(prev => prev.filter(i => i.id !== id));
+  const removeItem = useCallback((id: number, variantLabel?: string) => {
+    const key = itemKey(id, variantLabel);
+    setItems(prev => prev.filter(i => itemKey(i.id, i.variantLabel) !== key));
   }, []);
 
-  const updateQuantity = useCallback((id: number, quantity: number) => {
+  const updateQuantity = useCallback((id: number, quantity: number, variantLabel?: string) => {
+    const key = itemKey(id, variantLabel);
     if (quantity <= 0) {
-      setItems(prev => prev.filter(i => i.id !== id));
+      setItems(prev => prev.filter(i => itemKey(i.id, i.variantLabel) !== key));
     } else {
-      setItems(prev => prev.map(i => i.id === id ? { ...i, quantity } : i));
+      setItems(prev => prev.map(i =>
+        itemKey(i.id, i.variantLabel) === key ? { ...i, quantity } : i
+      ));
     }
   }, []);
 

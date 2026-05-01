@@ -5,3 +5,4 @@ export * from "./conversations";
 export * from "./messages";
 export * from "./orders";
 export * from "./telegramUpdates";
+export * from "./productVariants";

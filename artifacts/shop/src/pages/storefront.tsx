@@ -39,7 +39,11 @@ export default function Storefront() {
 
   const { items, addItem, removeItem, updateQuantity, clearCart, totalItems } = useCart(slug);
   const [cartOpen, setCartOpen] = useState(false);
-  const [addedIds, setAddedIds] = useState<Set<number>>(new Set());
+
+  /** selected variant label per product id */
+  const [selectedVariants, setSelectedVariants] = useState<Record<number, string>>({});
+  /** "productId:variantLabel" → briefly true after clicking Add */
+  const [addedKeys, setAddedKeys] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
 
   const filteredProducts = useMemo(() => {
@@ -52,22 +56,25 @@ export default function Storefront() {
   }, [products, searchQuery]);
 
   type ProductRow = NonNullable<typeof products>[number];
-  const handleAddToCart = (product: ProductRow) => {
+
+  const handleAddToCart = (product: ProductRow, variantLabel?: string) => {
     addItem({
       id: product.id,
       name: product.name,
       price: product.price,
       imageUrl: product.imageUrl,
+      variantLabel,
     });
-    setAddedIds(prev => {
+    const key = variantLabel ? `${product.id}:${variantLabel}` : `${product.id}`;
+    setAddedKeys(prev => {
       const next = new Set(prev);
-      next.add(product.id);
+      next.add(key);
       return next;
     });
     setTimeout(() => {
-      setAddedIds(prev => {
+      setAddedKeys(prev => {
         const next = new Set(prev);
-        next.delete(product.id);
+        next.delete(key);
         return next;
       });
     }, 1500);
@@ -104,8 +111,6 @@ export default function Storefront() {
       </div>
     );
   }
-
-  const hasTelegram = !!(store?.telegramBotUsername);
 
   return (
     <div className="min-h-[100dvh] bg-background">
@@ -200,9 +205,32 @@ export default function Storefront() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-8 sm:gap-x-8 sm:gap-y-12">
             {filteredProducts?.map(product => {
-              const inCart = items.find(i => i.id === product.id);
-              const justAdded = addedIds.has(product.id);
-              const outOfStock = product.inStock === false;
+              const hasVariants = product.hasVariants && product.variants.length > 0;
+              const selectedLabel = selectedVariants[product.id];
+              const selectedVariant = hasVariants
+                ? product.variants.find(v => v.label === selectedLabel)
+                : undefined;
+
+              // Overall stock: for variant products, based on at least one in-stock variant
+              const anyVariantInStock = hasVariants
+                ? product.variants.some(v => v.inStock)
+                : true;
+              const outOfStock = hasVariants
+                ? !anyVariantInStock
+                : product.inStock === false;
+
+              // Effective OOS for the selected variant (or unselected)
+              const selectedVariantOos = hasVariants && selectedLabel
+                ? selectedVariant?.inStock === false
+                : false;
+
+              const cartKey = selectedLabel ? `${product.id}:${selectedLabel}` : `${product.id}`;
+              const inCart = items.find(i =>
+                i.id === product.id && i.variantLabel === (selectedLabel || undefined)
+              );
+              const justAdded = addedKeys.has(cartKey);
+
+              const canAdd = !outOfStock && (!hasVariants || (!!selectedLabel && !selectedVariantOos));
 
               return (
                 <Card key={product.id} className={`overflow-hidden rounded-3xl border-border shadow-sm flex flex-col h-full bg-card ${outOfStock ? "opacity-70" : ""}`}>
@@ -239,20 +267,73 @@ export default function Storefront() {
                       <span className="font-bold text-primary bg-primary/10 px-3 py-1 rounded-full whitespace-nowrap">{store?.currency} {product.price}</span>
                     </div>
                     {product.description && (
-                      <p className="text-muted-foreground text-sm leading-relaxed mb-6 flex-1">
+                      <p className="text-muted-foreground text-sm leading-relaxed mb-4 flex-1">
                         {product.description}
                       </p>
                     )}
 
+                    {/* Variant / size picker */}
+                    {hasVariants && (
+                      <div className="mb-4">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                          Select Size / Option
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {product.variants.map(variant => {
+                            const isSelected = selectedLabel === variant.label;
+                            const isOos = !variant.inStock;
+                            return (
+                              <button
+                                key={variant.id}
+                                onClick={() => {
+                                  if (isOos) return;
+                                  setSelectedVariants(prev => ({
+                                    ...prev,
+                                    [product.id]: isSelected ? "" : variant.label,
+                                  }));
+                                }}
+                                className={[
+                                  "relative px-3 py-1.5 rounded-lg text-sm font-medium border transition-all select-none",
+                                  isOos
+                                    ? "opacity-40 cursor-not-allowed border-border text-muted-foreground line-through"
+                                    : isSelected
+                                    ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                    : "bg-background border-border text-foreground hover:border-primary/60",
+                                ].join(" ")}
+                                title={isOos ? "Out of stock" : undefined}
+                              >
+                                {variant.label}
+                                {isOos && (
+                                  <span className="sr-only"> (out of stock)</span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {hasVariants && !selectedLabel && (
+                          <p className="text-xs text-muted-foreground mt-1.5">Pick a size to add to cart</p>
+                        )}
+                        {selectedVariantOos && (
+                          <p className="text-xs text-destructive mt-1.5 flex items-center gap-1">
+                            <PackageX className="w-3 h-3" /> This size is out of stock
+                          </p>
+                        )}
+                      </div>
+                    )}
+
                     <div className="mt-auto pt-2">
                       <Button
-                        onClick={() => !outOfStock && handleAddToCart(product)}
+                        onClick={() => canAdd && handleAddToCart(product, selectedLabel || undefined)}
                         className="w-full rounded-2xl h-12"
                         size="lg"
-                        disabled={outOfStock}
+                        disabled={!canAdd}
                         variant={justAdded ? "default" : inCart ? "secondary" : "default"}
                       >
                         {outOfStock ? (
+                          <><PackageX className="w-5 h-5 mr-2" /> Out of Stock</>
+                        ) : hasVariants && !selectedLabel ? (
+                          <><ShoppingCart className="w-5 h-5 mr-2" /> Select a Size</>
+                        ) : selectedVariantOos ? (
                           <><PackageX className="w-5 h-5 mr-2" /> Out of Stock</>
                         ) : justAdded ? (
                           <><Check className="w-5 h-5 mr-2" /> Added!</>

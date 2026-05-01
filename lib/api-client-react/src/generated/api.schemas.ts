@@ -54,6 +54,21 @@ export interface UpdateStoreBody {
   deliveryFee?: string;
 }
 
+export interface ProductVariant {
+  id: number;
+  productId: number;
+  label: string;
+  inStock: boolean;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export interface ProductVariantInput {
+  label: string;
+  inStock?: boolean;
+  sortOrder?: number;
+}
+
 export interface Product {
   id: number;
   storeId: number;
@@ -66,6 +81,10 @@ export interface Product {
   inStock: boolean;
   /** @nullable */
   floorPrice?: string | null;
+  /** @nullable */
+  category?: string | null;
+  hasVariants: boolean;
+  variants: ProductVariant[];
   createdAt: string;
   updatedAt: string;
 }
@@ -77,6 +96,9 @@ export interface CreateProductBody {
   imageUrl?: string;
   inStock?: boolean;
   floorPrice?: string;
+  category?: string;
+  hasVariants?: boolean;
+  variants?: ProductVariantInput[];
 }
 
 export interface UpdateProductBody {
@@ -86,6 +108,9 @@ export interface UpdateProductBody {
   imageUrl?: string;
   inStock?: boolean;
   floorPrice?: string;
+  category?: string;
+  hasVariants?: boolean;
+  variants?: ProductVariantInput[];
 }
 
 export interface StoreSummary {

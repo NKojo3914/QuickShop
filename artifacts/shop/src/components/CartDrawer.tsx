@@ -6,8 +6,8 @@ interface CartDrawerProps {
   open: boolean;
   onClose: () => void;
   items: CartItem[];
-  onUpdateQuantity: (id: number, qty: number) => void;
-  onRemove: (id: number) => void;
+  onUpdateQuantity: (id: number, quantity: number, variantLabel?: string) => void;
+  onRemove: (id: number, variantLabel?: string) => void;
   onClear: () => void;
   storeName: string;
   whatsappNumber: string;
@@ -42,7 +42,10 @@ export function CartDrawer({
 
   const buildOrderSummary = () =>
     items
-      .map(i => `• ${i.name} x${i.quantity} @ ${currency} ${i.price} = ${formatTotal(itemSubtotal(i))}`)
+      .map(i => {
+        const label = i.variantLabel ? ` (${i.variantLabel})` : "";
+        return `• ${i.name}${label} x${i.quantity} @ ${currency} ${i.price} = ${formatTotal(itemSubtotal(i))}`;
+      })
       .join("\n")
       .concat(`\n\nTotal: ${formatTotal(grandTotal)}`);
 
@@ -59,6 +62,7 @@ export function CartDrawer({
   const handleTelegramCheckout = () => {
     if (!telegramBotUsername || !items.length) return;
     const username = telegramBotUsername.replace(/^@/, "");
+    // Encode cart as "id:qty" pairs (variant label passed separately in the bot conversation)
     const startPayload = encodeURIComponent(`cart_${items.map(i => `${i.id}x${i.quantity}`).join("_")}`);
     window.open(`https://t.me/${username}?start=${startPayload}`, "_blank");
     onClear();
@@ -103,7 +107,7 @@ export function CartDrawer({
             </div>
           ) : (
             items.map(item => (
-              <div key={item.id} className="flex items-center gap-3 bg-muted/50 rounded-2xl p-3">
+              <div key={`${item.id}:${item.variantLabel ?? ""}`} className="flex items-center gap-3 bg-muted/50 rounded-2xl p-3">
                 {item.imageUrl ? (
                   <img
                     src={`/api/storage${item.imageUrl}`}
@@ -115,20 +119,25 @@ export function CartDrawer({
                 )}
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-sm text-foreground truncate">{item.name}</p>
+                  {item.variantLabel && (
+                    <p className="text-xs text-muted-foreground font-medium">
+                      Size: {item.variantLabel}
+                    </p>
+                  )}
                   <div className="flex items-center gap-2">
                     <p className="text-muted-foreground text-xs">{item.price} each</p>
                   </div>
                   <p className="text-primary text-sm font-bold">{formatTotal(itemSubtotal(item))}</p>
                   <div className="flex items-center gap-2 mt-1.5">
                     <button
-                      onClick={() => onUpdateQuantity(item.id, item.quantity - 1)}
+                      onClick={() => onUpdateQuantity(item.id, item.quantity - 1, item.variantLabel)}
                       className="w-6 h-6 rounded-full bg-background border flex items-center justify-center hover:bg-muted transition-colors"
                     >
                       <Minus className="w-3 h-3" />
                     </button>
                     <span className="text-sm font-medium w-4 text-center">{item.quantity}</span>
                     <button
-                      onClick={() => onUpdateQuantity(item.id, item.quantity + 1)}
+                      onClick={() => onUpdateQuantity(item.id, item.quantity + 1, item.variantLabel)}
                       className="w-6 h-6 rounded-full bg-background border flex items-center justify-center hover:bg-muted transition-colors"
                     >
                       <Plus className="w-3 h-3" />
@@ -136,7 +145,7 @@ export function CartDrawer({
                   </div>
                 </div>
                 <button
-                  onClick={() => onRemove(item.id)}
+                  onClick={() => onRemove(item.id, item.variantLabel)}
                   className="text-muted-foreground hover:text-destructive transition-colors p-1"
                 >
                   <Trash2 className="w-4 h-4" />

@@ -1,4 +1,4 @@
-import { Image as ImageIcon, Loader2 } from "lucide-react";
+import { Image as ImageIcon, Loader2, Plus, Trash2, GripVertical } from "lucide-react";
 import type { UseFormReturn } from "react-hook-form";
 import {
   Dialog,
@@ -19,13 +19,23 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
-interface ProductFormValues {
+export interface VariantRow {
+  label: string;
+  inStock: boolean;
+}
+
+export interface ProductFormValues {
   name: string;
   description?: string;
   price: string;
   floorPrice?: string;
   imageUrl?: string;
+  category?: string;
+  hasVariants: boolean;
+  variants: VariantRow[];
 }
 
 export interface ProductFormDialogProps {
@@ -42,6 +52,17 @@ export interface ProductFormDialogProps {
   storeCurrency: string | null | undefined;
 }
 
+const CATEGORY_PRESETS = [
+  "Footwear",
+  "Clothing",
+  "Accessories",
+  "Electronics",
+  "Food & Drinks",
+  "Beauty",
+  "Home & Living",
+  "Other",
+];
+
 export function ProductFormDialog({
   open,
   onOpenChange,
@@ -55,9 +76,32 @@ export function ProductFormDialog({
   isUpdatePending,
   storeCurrency,
 }: ProductFormDialogProps) {
+  const hasVariants = form.watch("hasVariants");
+  const variants = form.watch("variants") ?? [];
+
+  const addVariant = () => {
+    form.setValue("variants", [...variants, { label: "", inStock: true }]);
+  };
+
+  const removeVariant = (index: number) => {
+    form.setValue("variants", variants.filter((_, i) => i !== index));
+  };
+
+  const updateVariantLabel = (index: number, label: string) => {
+    const next = [...variants];
+    next[index] = { ...next[index], label };
+    form.setValue("variants", next);
+  };
+
+  const toggleVariantStock = (index: number) => {
+    const next = [...variants];
+    next[index] = { ...next[index], inStock: !next[index].inStock };
+    form.setValue("variants", next);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px] rounded-3xl">
+      <DialogContent className="sm:max-w-[540px] rounded-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-2xl font-serif">
             {editingProductId ? "Edit Product" : "Add Product"}
@@ -69,8 +113,12 @@ export function ProductFormDialog({
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5 py-4">
+            {/* Image upload */}
             <div className="flex flex-col items-center gap-4 mb-2">
-              <div className="relative w-32 h-32 rounded-2xl overflow-hidden bg-muted border border-border flex items-center justify-center group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+              <div
+                className="relative w-32 h-32 rounded-2xl overflow-hidden bg-muted border border-border flex items-center justify-center group cursor-pointer"
+                onClick={() => fileInputRef.current?.click()}
+              >
                 {form.watch("imageUrl") ? (
                   <img src={`/api/storage${form.watch("imageUrl")}`} className="w-full h-full object-cover" alt="Preview" />
                 ) : (
@@ -94,6 +142,7 @@ export function ProductFormDialog({
               />
             </div>
 
+            {/* Name */}
             <FormField
               control={form.control}
               name="name"
@@ -101,13 +150,50 @@ export function ProductFormDialog({
                 <FormItem>
                   <FormLabel>Product Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. Sourdough Loaf" {...field} />
+                    <Input placeholder="e.g. Air Max 90, Ankara Shirt" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
 
+            {/* Category */}
+            <FormField
+              control={form.control}
+              name="category"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    Category <span className="text-muted-foreground font-normal">(optional)</span>
+                  </FormLabel>
+                  <FormControl>
+                    <div className="space-y-2">
+                      <Input placeholder="e.g. Footwear, Clothing, Electronics" {...field} value={field.value ?? ""} />
+                      <div className="flex flex-wrap gap-1.5">
+                        {CATEGORY_PRESETS.map(cat => (
+                          <button
+                            key={cat}
+                            type="button"
+                            onClick={() => field.onChange(field.value === cat ? "" : cat)}
+                            className={[
+                              "px-2.5 py-1 rounded-full text-xs font-medium border transition-all",
+                              field.value === cat
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "bg-background border-border text-muted-foreground hover:border-primary/50 hover:text-foreground",
+                            ].join(" ")}
+                          >
+                            {cat}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {/* Price */}
             <FormField
               control={form.control}
               name="price"
@@ -134,6 +220,7 @@ export function ProductFormDialog({
               )}
             />
 
+            {/* Floor price */}
             <FormField
               control={form.control}
               name="floorPrice"
@@ -165,6 +252,7 @@ export function ProductFormDialog({
               )}
             />
 
+            {/* Description */}
             <FormField
               control={form.control}
               name="description"
@@ -173,7 +261,7 @@ export function ProductFormDialog({
                   <FormLabel>Description</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder="Freshly baked every morning using our 10-year-old starter."
+                      placeholder="Describe your product..."
                       className="resize-none"
                       {...field}
                     />
@@ -182,6 +270,88 @@ export function ProductFormDialog({
                 </FormItem>
               )}
             />
+
+            {/* Variants toggle */}
+            <div className="border rounded-2xl p-4 space-y-4 bg-muted/30">
+              <FormField
+                control={form.control}
+                name="hasVariants"
+                render={({ field }) => (
+                  <FormItem>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <FormLabel className="text-base font-semibold">Size / Option Variants</FormLabel>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Enable for shoes, clothing, or any item with multiple sizes/options
+                        </p>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={(checked) => {
+                            field.onChange(checked);
+                            if (checked && variants.length === 0) {
+                              form.setValue("variants", [{ label: "", inStock: true }]);
+                            }
+                          }}
+                        />
+                      </FormControl>
+                    </div>
+                  </FormItem>
+                )}
+              />
+
+              {hasVariants && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    {variants.map((variant, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <GripVertical className="w-4 h-4 text-muted-foreground/40 shrink-0" />
+                        <Input
+                          placeholder={`Size / option (e.g. S, M, L, 40, 42, Red)`}
+                          value={variant.label}
+                          onChange={e => updateVariantLabel(index, e.target.value)}
+                          className="flex-1"
+                        />
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Switch
+                            checked={variant.inStock}
+                            onCheckedChange={() => toggleVariantStock(index)}
+                            id={`variant-stock-${index}`}
+                          />
+                          <Label
+                            htmlFor={`variant-stock-${index}`}
+                            className={`text-xs font-medium w-14 ${variant.inStock ? "text-green-600" : "text-muted-foreground"}`}
+                          >
+                            {variant.inStock ? "In stock" : "OOS"}
+                          </Label>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeVariant(index)}
+                          className="text-muted-foreground hover:text-destructive transition-colors p-1"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={addVariant}
+                    className="w-full rounded-xl"
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add Size / Option
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Toggle "In stock / OOS" for each size individually. Buyers will see grayed-out sizes when OOS.
+                  </p>
+                </div>
+              )}
+            </div>
 
             <DialogFooter className="pt-4">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

@@ -53,7 +53,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 import { StoreHeader } from "@/components/dashboard/StoreHeader";
 import { ProductsGrid } from "@/components/dashboard/ProductsGrid";
-import { ProductFormDialog } from "@/components/dashboard/ProductFormDialog";
+import { ProductFormDialog, type VariantRow } from "@/components/dashboard/ProductFormDialog";
 import { OrdersSidebar } from "@/components/dashboard/OrdersSidebar";
 import { LogOrderDialog } from "@/components/dashboard/LogOrderDialog";
 import { StoreSettingsDialog } from "@/components/dashboard/StoreSettingsDialog";
@@ -64,12 +64,20 @@ import { PayoutSetupDialog } from "@/components/dashboard/PayoutSetupDialog";
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
+const variantRowSchema = z.object({
+  label: z.string(),
+  inStock: z.boolean(),
+});
+
 const productSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
   price: z.string().min(1, "Price is required"),
   floorPrice: z.string().optional(),
   imageUrl: z.string().optional(),
+  category: z.string().optional(),
+  hasVariants: z.boolean(),
+  variants: z.array(variantRowSchema),
 });
 type ProductFormValues = z.infer<typeof productSchema>;
 
@@ -181,7 +189,7 @@ export default function Dashboard() {
   });
   const productForm = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
-    defaultValues: { name: "", description: "", price: "", floorPrice: "", imageUrl: "" },
+    defaultValues: { name: "", description: "", price: "", floorPrice: "", imageUrl: "", category: "", hasVariants: false, variants: [] },
   });
   const logOrderForm = useForm<LogOrderFormValues>({
     resolver: zodResolver(logOrderSchema),
@@ -382,18 +390,26 @@ export default function Dashboard() {
   };
 
   const openCreateModal = () => {
-    productForm.reset({ name: "", description: "", price: "", floorPrice: "", imageUrl: "" });
+    productForm.reset({ name: "", description: "", price: "", floorPrice: "", imageUrl: "", category: "", hasVariants: false, variants: [] });
     setEditingProductId(null);
     setIsProductModalOpen(true);
   };
 
   const openEditModal = (product: Product) => {
+    const productWithVariants = product as Product & {
+      category?: string | null;
+      hasVariants?: boolean;
+      variants?: VariantRow[];
+    };
     productForm.reset({
       name: product.name,
       description: product.description || "",
       price: product.price,
       floorPrice: product.floorPrice || "",
       imageUrl: product.imageUrl || "",
+      category: productWithVariants.category || "",
+      hasVariants: productWithVariants.hasVariants ?? false,
+      variants: (productWithVariants.variants ?? []).map(v => ({ label: v.label, inStock: v.inStock })),
     });
     setEditingProductId(product.id);
     setIsProductModalOpen(true);
@@ -401,7 +417,14 @@ export default function Dashboard() {
 
   const onSubmitProduct = (data: ProductFormValues) => {
     if (!store?.id) return;
-    const payload = { ...data, floorPrice: data.floorPrice?.trim() || undefined };
+    const payload = {
+      ...data,
+      floorPrice: data.floorPrice?.trim() || undefined,
+      category: data.category?.trim() || undefined,
+      variants: data.hasVariants
+        ? data.variants.filter((v: VariantRow) => v.label.trim()).map((v: VariantRow, i: number) => ({ label: v.label.trim(), inStock: v.inStock, sortOrder: i }))
+        : [],
+    };
     if (editingProductId) {
       updateProductMutation.mutate({ id: editingProductId, data: payload }, {
         onSuccess: () => {
