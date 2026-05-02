@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type Express, type ErrorRequestHandler } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
@@ -57,5 +57,16 @@ if (process.env.NODE_ENV === "production") {
     res.sendFile(path.join(frontendDist, "index.html"));
   });
 }
+
+// JSON error handler — must be the LAST middleware. Without this, unhandled
+// errors fall through to Express's default HTML error page, which the
+// frontend can't usefully parse for toasts.
+const jsonErrorHandler: ErrorRequestHandler = (err, req, res, _next) => {
+  logger.error({ err, path: req.path, method: req.method }, "Unhandled API error");
+  if (res.headersSent) return;
+  const message = err instanceof Error ? err.message : "Internal Server Error";
+  res.status(500).json({ error: message });
+};
+app.use(jsonErrorHandler);
 
 export default app;

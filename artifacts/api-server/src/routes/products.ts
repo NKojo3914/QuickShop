@@ -80,48 +80,71 @@ router.get("/stores/:storeId/products", async (req, res): Promise<void> => {
 });
 
 router.post("/stores/:storeId/products", requireAuth, async (req, res): Promise<void> => {
-  const params = CreateProductParams.safeParse(req.params);
-  if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
+  try {
+    const params = CreateProductParams.safeParse(req.params);
+    if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
 
-  const parsed = CreateProductBody.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+    const parsed = CreateProductBody.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
-  const [store] = await db.select().from(storesTable).where(eq(storesTable.id, params.data.storeId));
-  if (!store) { res.status(404).json({ error: "Store not found" }); return; }
-  if (store.sellerId !== res.locals.seller.sellerId) { res.status(403).json({ error: "You do not own this store" }); return; }
+    const [store] = await db.select().from(storesTable).where(eq(storesTable.id, params.data.storeId));
+    if (!store) { res.status(404).json({ error: "Store not found" }); return; }
+    if (store.sellerId !== res.locals.seller.sellerId) { res.status(403).json({ error: "You do not own this store" }); return; }
 
-  const sanitizedPrice = parsed.data.price.replace(/[^0-9.]/g, "");
-  if (isNaN(parseFloat(sanitizedPrice)) || parseFloat(sanitizedPrice) < 0) {
-    res.status(400).json({ error: "Invalid price value" }); return;
+    const sanitizedPrice = parsed.data.price.replace(/[^0-9.]/g, "");
+    if (isNaN(parseFloat(sanitizedPrice)) || parseFloat(sanitizedPrice) < 0) {
+      res.status(400).json({ error: "Invalid price value" }); return;
+    }
+
+    const { variants, images, ...productData } = parsed.data;
+
+    // Sanitize floorPrice the same way as price
+    let sanitizedFloor: string | undefined;
+    if (productData.floorPrice !== undefined && productData.floorPrice !== "") {
+      sanitizedFloor = productData.floorPrice.replace(/[^0-9.]/g, "");
+      if (isNaN(parseFloat(sanitizedFloor))) sanitizedFloor = undefined;
+    }
+
+    // First image becomes the primary imageUrl if not explicitly set
+    const primaryImageUrl = productData.imageUrl ?? (images && images[0]) ?? undefined;
+
+    // Build insert payload — only include keys that are explicitly set, since
+    // Drizzle treats undefined values as NULL on some adapters.
+    const insertValues: Record<string, unknown> = {
+      storeId: params.data.storeId,
+      name: productData.name,
+      price: sanitizedPrice,
+    };
+    if (productData.description !== undefined) insertValues.description = productData.description;
+    if (sanitizedFloor !== undefined) insertValues.floorPrice = sanitizedFloor;
+    if (primaryImageUrl !== undefined) insertValues.imageUrl = primaryImageUrl;
+    if (productData.inStock !== undefined) insertValues.inStock = productData.inStock;
+    if (productData.category !== undefined) insertValues.category = productData.category;
+    if (productData.hasVariants !== undefined) insertValues.hasVariants = productData.hasVariants;
+
+    const [product] = await db.insert(productsTable).values(insertValues).returning();
+
+    // Insert variants
+    let insertedVariants: VariantRow[] = [];
+    if (variants && variants.length > 0) {
+      insertedVariants = await db
+        .insert(productVariantsTable)
+        .values(variants.map((v, i) => ({ productId: product.id, label: v.label, inStock: v.inStock ?? true, sortOrder: v.sortOrder ?? i })))
+        .returning();
+    }
+
+    // Insert gallery images
+    let insertedImages: ImageRow[] = [];
+    if (images && images.length > 0) {
+      await replaceImages(product.id, images);
+      insertedImages = await db.select().from(productImagesTable).where(eq(productImagesTable.productId, product.id)).orderBy(productImagesTable.sortOrder);
+    }
+
+    res.status(201).json(GetProductResponse.parse({ ...product, variants: insertedVariants, images: insertedImages }));
+  } catch (err) {
+    console.error("Create product failed:", err);
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to create product" });
   }
-
-  const { variants, images, ...productData } = parsed.data;
-
-  // First image becomes the primary imageUrl if not explicitly set
-  const primaryImageUrl = productData.imageUrl ?? (images && images[0]) ?? undefined;
-
-  const [product] = await db
-    .insert(productsTable)
-    .values({ ...productData, imageUrl: primaryImageUrl, price: sanitizedPrice, storeId: params.data.storeId })
-    .returning();
-
-  // Insert variants
-  let insertedVariants: VariantRow[] = [];
-  if (variants && variants.length > 0) {
-    insertedVariants = await db
-      .insert(productVariantsTable)
-      .values(variants.map((v, i) => ({ productId: product.id, label: v.label, inStock: v.inStock ?? true, sortOrder: v.sortOrder ?? i })))
-      .returning();
-  }
-
-  // Insert gallery images (skip index 0 if it's already the primary imageUrl)
-  let insertedImages: ImageRow[] = [];
-  if (images && images.length > 0) {
-    await replaceImages(product.id, images);
-    insertedImages = await db.select().from(productImagesTable).where(eq(productImagesTable.productId, product.id)).orderBy(productImagesTable.sortOrder);
-  }
-
-  res.status(201).json(GetProductResponse.parse({ ...product, variants: insertedVariants, images: insertedImages }));
 });
 
 router.get("/products/:id", async (req, res): Promise<void> => {
@@ -136,6 +159,7 @@ router.get("/products/:id", async (req, res): Promise<void> => {
 });
 
 router.patch("/products/:id", requireAuth, async (req, res): Promise<void> => {
+  try {
   const params = UpdateProductParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
 
@@ -197,6 +221,10 @@ router.patch("/products/:id", requireAuth, async (req, res): Promise<void> => {
   }
 
   res.json(UpdateProductResponse.parse({ ...product, variants: currentVariants, images: currentImages }));
+  } catch (err) {
+    console.error("Update product failed:", err);
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to update product" });
+  }
 });
 
 router.delete("/products/:id", requireAuth, async (req, res): Promise<void> => {
