@@ -584,6 +584,27 @@ components:
         deliveryFee:
           type: string
 
+    ProductImage:
+      type: object
+      properties:
+        id:
+          type: integer
+        productId:
+          type: integer
+        url:
+          type: string
+        sortOrder:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - productId
+        - url
+        - sortOrder
+        - createdAt
+
     ProductVariant:
       type: object
       properties:
@@ -647,6 +668,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ProductVariant"
+        images:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductImage"
         createdAt:
           type: string
           format: date-time
@@ -661,6 +686,7 @@ components:
         - inStock
         - hasVariants
         - variants
+        - images
         - createdAt
         - updatedAt
 
@@ -687,6 +713,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ProductVariantInput"
+        images:
+          type: array
+          items:
+            type: string
       required:
         - name
         - price
@@ -714,6 +744,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ProductVariantInput"
+        images:
+          type: array
+          items:
+            type: string
 
     StoreSummary:
       type: object

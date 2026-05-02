@@ -128,6 +128,14 @@ export const ListProductsParams = zod.object({
   storeId: zod.coerce.number(),
 });
 
+export const ProductImageSchema = zod.object({
+  id: zod.number(),
+  productId: zod.number(),
+  url: zod.string(),
+  sortOrder: zod.number(),
+  createdAt: zod.coerce.date(),
+});
+
 export const ProductVariantSchema = zod.object({
   id: zod.number(),
   productId: zod.number(),
@@ -155,6 +163,7 @@ export const ListProductsResponseItem = zod.object({
   category: zod.string().nullish(),
   hasVariants: zod.boolean(),
   variants: zod.array(ProductVariantSchema),
+  images: zod.array(ProductImageSchema),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
 });
@@ -177,6 +186,7 @@ export const CreateProductBody = zod.object({
   category: zod.string().optional(),
   hasVariants: zod.boolean().optional(),
   variants: zod.array(ProductVariantInputSchema).optional(),
+  images: zod.array(zod.string()).optional(),
 });
 
 /**
@@ -198,6 +208,7 @@ export const GetProductResponse = zod.object({
   category: zod.string().nullish(),
   hasVariants: zod.boolean(),
   variants: zod.array(ProductVariantSchema),
+  images: zod.array(ProductImageSchema),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
 });
@@ -219,6 +230,7 @@ export const UpdateProductBody = zod.object({
   category: zod.string().optional(),
   hasVariants: zod.boolean().optional(),
   variants: zod.array(ProductVariantInputSchema).optional(),
+  images: zod.array(zod.string()).optional(),
 });
 
 export const UpdateProductResponse = zod.object({
@@ -233,6 +245,7 @@ export const UpdateProductResponse = zod.object({
   category: zod.string().nullish(),
   hasVariants: zod.boolean(),
   variants: zod.array(ProductVariantSchema),
+  images: zod.array(ProductImageSchema),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
 });

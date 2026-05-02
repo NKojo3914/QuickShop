@@ -75,6 +75,7 @@ const productSchema = z.object({
   price: z.string().min(1, "Price is required"),
   floorPrice: z.string().optional(),
   imageUrl: z.string().optional(),
+  images: z.array(z.string()),
   category: z.string().optional(),
   inStock: z.boolean(),
   hasVariants: z.boolean(),
@@ -181,7 +182,6 @@ export default function Dashboard() {
   const [isLogoUploading, setIsLogoUploading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Forms ─────────────────────────────────────────────────────────────────
   const storeSettingsForm = useForm<StoreSettingsFormValues>({
@@ -190,7 +190,7 @@ export default function Dashboard() {
   });
   const productForm = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
-    defaultValues: { name: "", description: "", price: "", floorPrice: "", imageUrl: "", category: "", inStock: true, hasVariants: false, variants: [] },
+    defaultValues: { name: "", description: "", price: "", floorPrice: "", imageUrl: "", images: [], category: "", inStock: true, hasVariants: false, variants: [] },
   });
   const logOrderForm = useForm<LogOrderFormValues>({
     resolver: zodResolver(logOrderSchema),
@@ -372,46 +372,49 @@ export default function Dashboard() {
     );
   };
 
-  const handleUploadImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleUploadImageFile = async (file: File): Promise<string> => {
+    setIsUploading(true);
     try {
-      setIsUploading(true);
       const res = await requestUploadUrlMutation.mutateAsync({
         data: { name: file.name, size: file.size, contentType: file.type }
       });
       await fetch(res.uploadURL, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
-      productForm.setValue("imageUrl", res.objectPath);
-      toast({ title: "Image uploaded successfully" });
+      return res.objectPath;
     } catch {
       toast({ variant: "destructive", title: "Upload failed", description: "Could not upload image." });
+      return "";
     } finally {
       setIsUploading(false);
     }
   };
 
   const openCreateModal = () => {
-    productForm.reset({ name: "", description: "", price: "", floorPrice: "", imageUrl: "", category: "", inStock: true, hasVariants: false, variants: [] });
+    productForm.reset({ name: "", description: "", price: "", floorPrice: "", imageUrl: "", images: [], category: "", inStock: true, hasVariants: false, variants: [] });
     setEditingProductId(null);
     setIsProductModalOpen(true);
   };
 
   const openEditModal = (product: Product) => {
-    const productWithVariants = product as Product & {
+    const p = product as Product & {
       category?: string | null;
       hasVariants?: boolean;
       variants?: VariantRow[];
+      images?: { url: string }[];
     };
+    // Collect all gallery image URLs; if none, fall back to imageUrl
+    const galleryUrls = (p.images ?? []).map((img: { url: string }) => img.url);
+    const imagesList = galleryUrls.length > 0 ? galleryUrls : (product.imageUrl ? [product.imageUrl] : []);
     productForm.reset({
       name: product.name,
       description: product.description || "",
       price: product.price,
       floorPrice: product.floorPrice || "",
-      imageUrl: product.imageUrl || "",
-      category: productWithVariants.category || "",
+      imageUrl: imagesList[0] || "",
+      images: imagesList,
+      category: p.category || "",
       inStock: product.inStock,
-      hasVariants: productWithVariants.hasVariants ?? false,
-      variants: (productWithVariants.variants ?? []).map(v => ({ label: v.label, inStock: v.inStock })),
+      hasVariants: p.hasVariants ?? false,
+      variants: (p.variants ?? []).map(v => ({ label: v.label, inStock: v.inStock })),
     });
     setEditingProductId(product.id);
     setIsProductModalOpen(true);
@@ -424,6 +427,8 @@ export default function Dashboard() {
       floorPrice: data.floorPrice?.trim() || undefined,
       category: data.category?.trim() || undefined,
       inStock: data.hasVariants ? undefined : data.inStock,
+      imageUrl: data.images[0] || undefined,
+      images: data.images,
       variants: data.hasVariants
         ? data.variants.filter((v: VariantRow) => v.label.trim()).map((v: VariantRow, i: number) => ({ label: v.label.trim(), inStock: v.inStock, sortOrder: i }))
         : [],
@@ -689,8 +694,7 @@ export default function Dashboard() {
         form={productForm}
         onSubmit={onSubmitProduct}
         editingProductId={editingProductId}
-        fileInputRef={fileInputRef}
-        handleUploadImage={handleUploadImage}
+        onUploadImage={handleUploadImageFile}
         isUploading={isUploading}
         isCreatePending={createProductMutation.isPending}
         isUpdatePending={updateProductMutation.isPending}

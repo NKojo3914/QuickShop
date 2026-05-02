@@ -54,6 +54,14 @@ export interface UpdateStoreBody {
   deliveryFee?: string;
 }
 
+export interface ProductImage {
+  id: number;
+  productId: number;
+  url: string;
+  sortOrder: number;
+  createdAt: string;
+}
+
 export interface ProductVariant {
   id: number;
   productId: number;
@@ -85,6 +93,7 @@ export interface Product {
   category?: string | null;
   hasVariants: boolean;
   variants: ProductVariant[];
+  images: ProductImage[];
   createdAt: string;
   updatedAt: string;
 }
@@ -99,6 +108,7 @@ export interface CreateProductBody {
   category?: string;
   hasVariants?: boolean;
   variants?: ProductVariantInput[];
+  images?: string[];
 }
 
 export interface UpdateProductBody {
@@ -111,6 +121,7 @@ export interface UpdateProductBody {
   category?: string;
   hasVariants?: boolean;
   variants?: ProductVariantInput[];
+  images?: string[];
 }
 
 export interface StoreSummary {

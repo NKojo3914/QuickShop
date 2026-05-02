@@ -1,4 +1,5 @@
-import { Image as ImageIcon, Loader2, Plus, Trash2, GripVertical } from "lucide-react";
+import { useRef } from "react";
+import { Image as ImageIcon, Loader2, Plus, Trash2, GripVertical, X } from "lucide-react";
 import type { UseFormReturn } from "react-hook-form";
 import {
   Dialog,
@@ -32,7 +33,10 @@ export interface ProductFormValues {
   description?: string;
   price: string;
   floorPrice?: string;
+  /** Primary thumbnail — always images[0] */
   imageUrl?: string;
+  /** All gallery images in order */
+  images: string[];
   category?: string;
   inStock: boolean;
   hasVariants: boolean;
@@ -45,8 +49,8 @@ export interface ProductFormDialogProps {
   form: UseFormReturn<ProductFormValues>;
   onSubmit: (data: ProductFormValues) => void;
   editingProductId: number | null;
-  fileInputRef: React.RefObject<HTMLInputElement | null>;
-  handleUploadImage: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  /** Called when the user picks a new file to upload; should resolve and call addImage() */
+  onUploadImage: (file: File) => Promise<string>;
   isUploading: boolean;
   isCreatePending: boolean;
   isUpdatePending: boolean;
@@ -70,8 +74,7 @@ export function ProductFormDialog({
   form,
   onSubmit,
   editingProductId,
-  fileInputRef,
-  handleUploadImage,
+  onUploadImage,
   isUploading,
   isCreatePending,
   isUpdatePending,
@@ -79,6 +82,36 @@ export function ProductFormDialog({
 }: ProductFormDialogProps) {
   const hasVariants = form.watch("hasVariants");
   const variants = form.watch("variants") ?? [];
+  const images = form.watch("images") ?? [];
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Image helpers ────────────────────────────────────────────────────────
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    // Upload all selected files sequentially
+    for (const file of files) {
+      const url = await onUploadImage(file);
+      if (url) {
+        const current = form.getValues("images") ?? [];
+        const updated = [...current, url];
+        form.setValue("images", updated);
+        // First image is always the primary thumbnail
+        form.setValue("imageUrl", updated[0]);
+      }
+    }
+    // Reset so the same file can be re-selected
+    e.target.value = "";
+  };
+
+  const removeImage = (index: number) => {
+    const updated = images.filter((_, i) => i !== index);
+    form.setValue("images", updated);
+    form.setValue("imageUrl", updated[0] ?? "");
+  };
+
+  // ── Variant helpers ──────────────────────────────────────────────────────
 
   const addVariant = () => {
     form.setValue("variants", [...variants, { label: "", inStock: true }]);
@@ -102,7 +135,7 @@ export function ProductFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[540px] rounded-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[560px] rounded-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-2xl font-serif">
             {editingProductId ? "Edit Product" : "Add Product"}
@@ -114,36 +147,69 @@ export function ProductFormDialog({
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5 py-4">
-            {/* Image upload */}
-            <div className="flex flex-col items-center gap-4 mb-2">
-              <div
-                className="relative w-32 h-32 rounded-2xl overflow-hidden bg-muted border border-border flex items-center justify-center group cursor-pointer"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {form.watch("imageUrl") ? (
-                  <img src={`/api/storage${form.watch("imageUrl")}`} className="w-full h-full object-cover" alt="Preview" />
-                ) : (
-                  <ImageIcon className="w-8 h-8 text-muted-foreground" />
-                )}
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <span className="text-white text-xs font-medium">Upload Image</span>
-                </div>
-                {isUploading && (
-                  <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
-                    <Loader2 className="w-6 h-6 animate-spin text-primary" />
+
+            {/* ── Image gallery ──────────────────────────────────────────── */}
+            <div className="space-y-2">
+              <p className="text-sm font-medium">
+                Photos <span className="text-muted-foreground font-normal">(first photo is the main thumbnail)</span>
+              </p>
+
+              <div className="flex flex-wrap gap-3">
+                {/* Uploaded thumbnails */}
+                {images.map((url, idx) => (
+                  <div key={url + idx} className="relative w-24 h-24 rounded-2xl overflow-hidden border border-border group shrink-0">
+                    <img
+                      src={`/api/storage${url}`}
+                      alt={`Photo ${idx + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                    {/* Primary badge */}
+                    {idx === 0 && (
+                      <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] font-medium text-center py-0.5">
+                        Main
+                      </span>
+                    )}
+                    {/* Remove button */}
+                    <button
+                      type="button"
+                      onClick={() => removeImage(idx)}
+                      className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X className="w-3 h-3 text-white" />
+                    </button>
                   </div>
-                )}
+                ))}
+
+                {/* Add photo button */}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="w-24 h-24 rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-1 text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors shrink-0 disabled:opacity-50"
+                >
+                  {isUploading ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <>
+                      <Plus className="w-5 h-5" />
+                      <span className="text-[10px] font-medium">Add photo</span>
+                    </>
+                  )}
+                </button>
               </div>
+
+              {/* Hidden multi-file input */}
               <input
                 type="file"
                 ref={fileInputRef}
                 className="hidden"
                 accept="image/*"
-                onChange={handleUploadImage}
+                multiple
+                onChange={handleFileChange}
               />
             </div>
 
-            {/* Name */}
+            {/* ── Name ──────────────────────────────────────────────────── */}
             <FormField
               control={form.control}
               name="name"
@@ -158,7 +224,7 @@ export function ProductFormDialog({
               )}
             />
 
-            {/* Category */}
+            {/* ── Category ─────────────────────────────────────────────── */}
             <FormField
               control={form.control}
               name="category"
@@ -194,7 +260,7 @@ export function ProductFormDialog({
               )}
             />
 
-            {/* Price */}
+            {/* ── Price ────────────────────────────────────────────────── */}
             <FormField
               control={form.control}
               name="price"
@@ -206,14 +272,7 @@ export function ProductFormDialog({
                       <span className="text-muted-foreground bg-muted px-3 py-2 text-sm border border-r-0 rounded-l-md select-none font-medium">
                         {storeCurrency || "GHS"}
                       </span>
-                      <Input
-                        placeholder="0.00"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className="rounded-l-none"
-                        {...field}
-                      />
+                      <Input placeholder="0.00" type="number" min="0" step="0.01" className="rounded-l-none" {...field} />
                     </div>
                   </FormControl>
                   <FormMessage />
@@ -221,7 +280,7 @@ export function ProductFormDialog({
               )}
             />
 
-            {/* Floor price */}
+            {/* ── Floor price ──────────────────────────────────────────── */}
             <FormField
               control={form.control}
               name="floorPrice"
@@ -235,14 +294,7 @@ export function ProductFormDialog({
                       <span className="text-muted-foreground bg-muted px-3 py-2 text-sm border border-r-0 rounded-l-md select-none font-medium">
                         {storeCurrency || "GHS"}
                       </span>
-                      <Input
-                        placeholder="0.00"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className="rounded-l-none"
-                        {...field}
-                      />
+                      <Input placeholder="0.00" type="number" min="0" step="0.01" className="rounded-l-none" {...field} />
                     </div>
                   </FormControl>
                   <p className="text-xs text-muted-foreground mt-1">
@@ -253,7 +305,7 @@ export function ProductFormDialog({
               )}
             />
 
-            {/* Description */}
+            {/* ── Description ──────────────────────────────────────────── */}
             <FormField
               control={form.control}
               name="description"
@@ -261,18 +313,14 @@ export function ProductFormDialog({
                 <FormItem>
                   <FormLabel>Description</FormLabel>
                   <FormControl>
-                    <Textarea
-                      placeholder="Describe your product..."
-                      className="resize-none"
-                      {...field}
-                    />
+                    <Textarea placeholder="Describe your product..." className="resize-none" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
 
-            {/* In-stock toggle — only shown when not using per-variant stock */}
+            {/* ── In-stock toggle (non-variant products only) ───────────── */}
             {!hasVariants && (
               <FormField
                 control={form.control}
@@ -299,7 +347,7 @@ export function ProductFormDialog({
               />
             )}
 
-            {/* Variants toggle */}
+            {/* ── Variants toggle ──────────────────────────────────────── */}
             <div className="border rounded-2xl p-4 space-y-4 bg-muted/30">
               <FormField
                 control={form.control}
@@ -336,7 +384,7 @@ export function ProductFormDialog({
                       <div key={index} className="flex items-center gap-2">
                         <GripVertical className="w-4 h-4 text-muted-foreground/40 shrink-0" />
                         <Input
-                          placeholder={`Size / option (e.g. S, M, L, 40, 42, Red)`}
+                          placeholder="Size / option (e.g. S, M, L, 40, 42, Red)"
                           value={variant.label}
                           onChange={e => updateVariantLabel(index, e.target.value)}
                           className="flex-1"
@@ -364,15 +412,8 @@ export function ProductFormDialog({
                       </div>
                     ))}
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={addVariant}
-                    className="w-full rounded-xl"
-                  >
-                    <Plus className="w-4 h-4 mr-1" />
-                    Add Size / Option
+                  <Button type="button" variant="outline" size="sm" onClick={addVariant} className="w-full rounded-xl">
+                    <Plus className="w-4 h-4 mr-1" /> Add Size / Option
                   </Button>
                   <p className="text-xs text-muted-foreground">
                     Toggle "In stock / OOS" for each size individually. Buyers will see grayed-out sizes when OOS.
@@ -382,9 +423,7 @@ export function ProductFormDialog({
             </div>
 
             <DialogFooter className="pt-4">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
               <Button type="submit" disabled={isCreatePending || isUpdatePending || isUploading}>
                 {editingProductId ? "Save Changes" : "Add Product"}
               </Button>

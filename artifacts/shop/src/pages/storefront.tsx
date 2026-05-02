@@ -10,6 +10,8 @@ import {
   PackageX,
   Search,
   X,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import {
   useGetStoreBySlug,
@@ -25,6 +27,78 @@ import { Input } from "@/components/ui/input";
 import { useCart } from "@/hooks/use-cart";
 import { CartDrawer } from "@/components/CartDrawer";
 
+// ── Carousel ──────────────────────────────────────────────────────────────────
+
+function ImageCarousel({ urls, alt, outOfStock }: { urls: string[]; alt: string; outOfStock: boolean }) {
+  const [idx, setIdx] = useState(0);
+  const total = urls.length;
+
+  if (total === 0) {
+    return (
+      <div className="aspect-square w-full bg-muted flex items-center justify-center relative">
+        <ImageIcon className="w-12 h-12 text-muted-foreground/30" />
+        {outOfStock && <OosBadge />}
+      </div>
+    );
+  }
+
+  const prev = (e: React.MouseEvent) => { e.stopPropagation(); setIdx(i => (i - 1 + total) % total); };
+  const next = (e: React.MouseEvent) => { e.stopPropagation(); setIdx(i => (i + 1) % total); };
+
+  return (
+    <div className="aspect-square w-full bg-muted relative overflow-hidden group/carousel">
+      <img
+        src={`/api/storage${urls[idx]}`}
+        alt={`${alt} — photo ${idx + 1}`}
+        className="w-full h-full object-cover transition-transform hover:scale-105 duration-500"
+      />
+
+      {outOfStock && <OosBadge />}
+
+      {/* Arrow nav — only shown when multiple images */}
+      {total > 1 && (
+        <>
+          <button
+            onClick={prev}
+            className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/40 hover:bg-black/60 text-white rounded-full p-1 opacity-0 group-hover/carousel:opacity-100 transition-opacity"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <button
+            onClick={next}
+            className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/40 hover:bg-black/60 text-white rounded-full p-1 opacity-0 group-hover/carousel:opacity-100 transition-opacity"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+
+          {/* Dot indicators */}
+          <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
+            {urls.map((_, i) => (
+              <button
+                key={i}
+                onClick={e => { e.stopPropagation(); setIdx(i); }}
+                className={`w-1.5 h-1.5 rounded-full transition-all ${i === idx ? "bg-white scale-125" : "bg-white/50"}`}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function OosBadge() {
+  return (
+    <div className="absolute inset-0 bg-background/50 flex items-center justify-center">
+      <span className="bg-background border text-foreground text-sm font-semibold px-4 py-1.5 rounded-full flex items-center gap-2">
+        <PackageX className="w-4 h-4" /> Out of Stock
+      </span>
+    </div>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
+
 export default function Storefront() {
   const [match, params] = useRoute("/store/:slug");
   const slug = params?.slug ?? "";
@@ -39,10 +113,7 @@ export default function Storefront() {
 
   const { items, addItem, removeItem, updateQuantity, clearCart, totalItems } = useCart(slug);
   const [cartOpen, setCartOpen] = useState(false);
-
-  /** selected variant label per product id */
   const [selectedVariants, setSelectedVariants] = useState<Record<number, string>>({});
-  /** "productId:variantLabel" → briefly true after clicking Add */
   const [addedKeys, setAddedKeys] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -58,26 +129,10 @@ export default function Storefront() {
   type ProductRow = NonNullable<typeof products>[number];
 
   const handleAddToCart = (product: ProductRow, variantLabel?: string) => {
-    addItem({
-      id: product.id,
-      name: product.name,
-      price: product.price,
-      imageUrl: product.imageUrl,
-      variantLabel,
-    });
+    addItem({ id: product.id, name: product.name, price: product.price, imageUrl: product.imageUrl, variantLabel });
     const key = variantLabel ? `${product.id}:${variantLabel}` : `${product.id}`;
-    setAddedKeys(prev => {
-      const next = new Set(prev);
-      next.add(key);
-      return next;
-    });
-    setTimeout(() => {
-      setAddedKeys(prev => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
-      });
-    }, 1500);
+    setAddedKeys(prev => { const n = new Set(prev); n.add(key); return n; });
+    setTimeout(() => setAddedKeys(prev => { const n = new Set(prev); n.delete(key); return n; }), 1500);
   };
 
   if (!match) return null;
@@ -134,9 +189,7 @@ export default function Storefront() {
           </div>
           <h1 className="text-4xl md:text-5xl font-serif font-bold text-foreground mb-4">{store?.name}</h1>
           {store?.description && (
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-              {store.description}
-            </p>
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed">{store.description}</p>
           )}
         </div>
       </div>
@@ -144,16 +197,10 @@ export default function Storefront() {
       {/* Sticky cart button */}
       {totalItems > 0 && (
         <div className="sticky top-4 z-30 flex justify-end px-4 max-w-5xl mx-auto mt-4">
-          <Button
-            onClick={() => setCartOpen(true)}
-            className="rounded-full shadow-lg gap-2 pr-5"
-            size="lg"
-          >
+          <Button onClick={() => setCartOpen(true)} className="rounded-full shadow-lg gap-2 pr-5" size="lg">
             <ShoppingCart className="w-5 h-5" />
             View Cart
-            <span className="bg-white text-primary text-xs font-bold px-2 py-0.5 rounded-full ml-1">
-              {totalItems}
-            </span>
+            <span className="bg-white text-primary text-xs font-bold px-2 py-0.5 rounded-full ml-1">{totalItems}</span>
           </Button>
         </div>
       )}
@@ -171,10 +218,7 @@ export default function Storefront() {
               className="pl-9 pr-9 rounded-xl"
             />
             {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
+              <button onClick={() => setSearchQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                 <X className="w-4 h-4" />
               </button>
             )}
@@ -205,79 +249,39 @@ export default function Storefront() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-8 sm:gap-x-8 sm:gap-y-12">
             {filteredProducts?.map(product => {
+              const p = product as typeof product & { images?: { url: string }[] };
+              // Build full image list: gallery images, fall back to imageUrl
+              const galleryUrls = (p.images ?? []).map((img: { url: string }) => img.url);
+              const imageUrls = galleryUrls.length > 0 ? galleryUrls : (product.imageUrl ? [product.imageUrl] : []);
+
               const hasVariants = product.hasVariants && product.variants.length > 0;
               const selectedLabel = selectedVariants[product.id];
-              const selectedVariant = hasVariants
-                ? product.variants.find(v => v.label === selectedLabel)
-                : undefined;
-
-              // Overall stock: for variant products, based on at least one in-stock variant
-              const anyVariantInStock = hasVariants
-                ? product.variants.some(v => v.inStock)
-                : true;
-              const outOfStock = hasVariants
-                ? !anyVariantInStock
-                : product.inStock === false;
-
-              // Effective OOS for the selected variant (or unselected)
-              const selectedVariantOos = hasVariants && selectedLabel
-                ? selectedVariant?.inStock === false
-                : false;
-
+              const selectedVariant = hasVariants ? product.variants.find(v => v.label === selectedLabel) : undefined;
+              const anyVariantInStock = hasVariants ? product.variants.some(v => v.inStock) : true;
+              const outOfStock = hasVariants ? !anyVariantInStock : product.inStock === false;
+              const selectedVariantOos = hasVariants && selectedLabel ? selectedVariant?.inStock === false : false;
               const cartKey = selectedLabel ? `${product.id}:${selectedLabel}` : `${product.id}`;
-              const inCart = items.find(i =>
-                i.id === product.id && i.variantLabel === (selectedLabel || undefined)
-              );
+              const inCart = items.find(i => i.id === product.id && i.variantLabel === (selectedLabel || undefined));
               const justAdded = addedKeys.has(cartKey);
-
               const canAdd = !outOfStock && (!hasVariants || (!!selectedLabel && !selectedVariantOos));
 
               return (
                 <Card key={product.id} className={`overflow-hidden rounded-3xl border-border shadow-sm flex flex-col h-full bg-card ${outOfStock ? "opacity-70" : ""}`}>
-                  {product.imageUrl ? (
-                    <div className="aspect-square w-full bg-muted relative overflow-hidden">
-                      <img
-                        src={`/api/storage${product.imageUrl}`}
-                        alt={product.name}
-                        className="w-full h-full object-cover transition-transform hover:scale-105 duration-500"
-                      />
-                      {outOfStock && (
-                        <div className="absolute inset-0 bg-background/50 flex items-center justify-center">
-                          <span className="bg-background border text-foreground text-sm font-semibold px-4 py-1.5 rounded-full flex items-center gap-2">
-                            <PackageX className="w-4 h-4" /> Out of Stock
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="aspect-square w-full bg-muted flex items-center justify-center relative">
-                      <ImageIcon className="w-12 h-12 text-muted-foreground/30" />
-                      {outOfStock && (
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <span className="bg-background border text-foreground text-sm font-semibold px-4 py-1.5 rounded-full flex items-center gap-2">
-                            <PackageX className="w-4 h-4" /> Out of Stock
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  <ImageCarousel urls={imageUrls} alt={product.name} outOfStock={outOfStock} />
+
                   <CardContent className="p-4 sm:p-6 flex-1 flex flex-col">
                     <div className="flex justify-between items-start mb-3 gap-4">
                       <h3 className="font-bold text-xl text-foreground">{product.name}</h3>
                       <span className="font-bold text-primary bg-primary/10 px-3 py-1 rounded-full whitespace-nowrap">{store?.currency} {product.price}</span>
                     </div>
                     {product.description && (
-                      <p className="text-muted-foreground text-sm leading-relaxed mb-4 flex-1">
-                        {product.description}
-                      </p>
+                      <p className="text-muted-foreground text-sm leading-relaxed mb-4 flex-1">{product.description}</p>
                     )}
 
-                    {/* Variant / size picker */}
+                    {/* Variant picker */}
                     {hasVariants && (
                       <div className="mb-4">
-                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                          Select Size / Option
-                        </p>
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Select Size / Option</p>
                         <div className="flex flex-wrap gap-2">
                           {product.variants.map(variant => {
                             const isSelected = selectedLabel === variant.label;
@@ -287,10 +291,7 @@ export default function Storefront() {
                                 key={variant.id}
                                 onClick={() => {
                                   if (isOos) return;
-                                  setSelectedVariants(prev => ({
-                                    ...prev,
-                                    [product.id]: isSelected ? "" : variant.label,
-                                  }));
+                                  setSelectedVariants(prev => ({ ...prev, [product.id]: isSelected ? "" : variant.label }));
                                 }}
                                 className={[
                                   "relative px-3 py-1.5 rounded-lg text-sm font-medium border transition-all select-none",
@@ -303,9 +304,6 @@ export default function Storefront() {
                                 title={isOos ? "Out of stock" : undefined}
                               >
                                 {variant.label}
-                                {isOos && (
-                                  <span className="sr-only"> (out of stock)</span>
-                                )}
                               </button>
                             );
                           })}
@@ -358,7 +356,6 @@ export default function Storefront() {
         </Link>
       </footer>
 
-      {/* Cart Drawer */}
       <CartDrawer
         open={cartOpen}
         onClose={() => setCartOpen(false)}

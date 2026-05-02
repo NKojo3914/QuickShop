@@ -6,3 +6,4 @@ export * from "./messages";
 export * from "./orders";
 export * from "./telegramUpdates";
 export * from "./productVariants";
+export * from "./productImages";
