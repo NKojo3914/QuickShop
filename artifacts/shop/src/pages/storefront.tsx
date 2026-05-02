@@ -5,14 +5,12 @@ import {
   ShoppingBag,
   Image as ImageIcon,
   ShoppingCart,
-  Plus,
-  Check,
   PackageX,
   Search,
   X,
   ChevronLeft,
   ChevronRight,
-  Pencil,
+  ChevronsRight,
 } from "lucide-react";
 import {
   useGetStoreBySlug,
@@ -27,16 +25,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { useCart } from "@/hooks/use-cart";
 import { CartDrawer } from "@/components/CartDrawer";
+import { ProductDetailDialog, type DetailProduct } from "@/components/ProductDetailDialog";
 
-// ── Carousel ──────────────────────────────────────────────────────────────────
+// ── Card carousel ────────────────────────────────────────────────────────────
 
 function ImageCarousel({ urls, alt, outOfStock }: { urls: string[]; alt: string; outOfStock: boolean }) {
   const [idx, setIdx] = useState(0);
   const total = urls.length;
-  // Touch / swipe state
   const touchStartX = useRef<number | null>(null);
   const touchDeltaX = useRef(0);
-  const [dragOffset, setDragOffset] = useState(0); // px
+  const [dragOffset, setDragOffset] = useState(0);
 
   if (total === 0) {
     return (
@@ -48,10 +46,12 @@ function ImageCarousel({ urls, alt, outOfStock }: { urls: string[]; alt: string;
   }
 
   const goTo = (next: number) => setIdx(((next % total) + total) % total);
-  const prev = (e: React.MouseEvent) => { e.stopPropagation(); goTo(idx - 1); };
-  const next = (e: React.MouseEvent) => { e.stopPropagation(); goTo(idx + 1); };
 
-  // ── Touch handlers ─────────────────────────────────────────────────────
+  // Stop click bubbling so carousel buttons don't trigger the card's "open dialog"
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+  const prev = (e: React.MouseEvent) => { stop(e); goTo(idx - 1); };
+  const next = (e: React.MouseEvent) => { stop(e); goTo(idx + 1); };
+
   const onTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
     touchDeltaX.current = 0;
@@ -65,7 +65,6 @@ function ImageCarousel({ urls, alt, outOfStock }: { urls: string[]; alt: string;
     if (touchStartX.current === null) return;
     const width = (e.currentTarget as HTMLElement).clientWidth;
     const delta = touchDeltaX.current;
-    // Swipe needs to cover at least 15% of the carousel width to count
     if (Math.abs(delta) > width * 0.15) {
       goTo(idx + (delta < 0 ? 1 : -1));
     }
@@ -81,7 +80,6 @@ function ImageCarousel({ urls, alt, outOfStock }: { urls: string[]; alt: string;
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      {/* Slider track — every image side-by-side, animated via translateX */}
       <div
         className="flex h-full w-full will-change-transform"
         style={{
@@ -104,7 +102,6 @@ function ImageCarousel({ urls, alt, outOfStock }: { urls: string[]; alt: string;
 
       {outOfStock && <OosBadge />}
 
-      {/* Arrow nav — only shown when multiple images */}
       {total > 1 && (
         <>
           <button
@@ -121,19 +118,15 @@ function ImageCarousel({ urls, alt, outOfStock }: { urls: string[]; alt: string;
           >
             <ChevronRight className="w-4 h-4" />
           </button>
-
-          {/* Dot indicators */}
           <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
             {urls.map((_, i) => (
               <button
                 key={i}
-                onClick={e => { e.stopPropagation(); goTo(i); }}
+                onClick={(e) => { e.stopPropagation(); goTo(i); }}
                 aria-label={`Go to photo ${i + 1}`}
                 className={[
                   "h-1.5 rounded-full transition-all duration-300 ease-out",
-                  i === idx
-                    ? "w-5 bg-white shadow-md"
-                    : "w-1.5 bg-white/60 hover:bg-white/80",
+                  i === idx ? "w-5 bg-white shadow-md" : "w-1.5 bg-white/60 hover:bg-white/80",
                 ].join(" ")}
               />
             ))}
@@ -146,7 +139,7 @@ function ImageCarousel({ urls, alt, outOfStock }: { urls: string[]; alt: string;
 
 function OosBadge() {
   return (
-    <div className="absolute inset-0 bg-background/50 flex items-center justify-center">
+    <div className="absolute inset-0 bg-background/50 flex items-center justify-center pointer-events-none">
       <span className="bg-background border text-foreground text-sm font-semibold px-4 py-1.5 rounded-full flex items-center gap-2">
         <PackageX className="w-4 h-4" /> Out of Stock
       </span>
@@ -161,39 +154,61 @@ export default function Storefront() {
   const slug = params?.slug ?? "";
 
   const { data: store, isLoading: isStoreLoading, error: storeError } = useGetStoreBySlug(slug, {
-    query: { enabled: !!slug, queryKey: getGetStoreBySlugQueryKey(slug) }
+    query: { enabled: !!slug, queryKey: getGetStoreBySlugQueryKey(slug) },
   });
 
   const { data: products, isLoading: isProductsLoading, error: productsError } = useListProducts(store?.id || 0, {
-    query: { enabled: !!store?.id, queryKey: getListProductsQueryKey(store?.id || 0) }
+    query: { enabled: !!store?.id, queryKey: getListProductsQueryKey(store?.id || 0) },
   });
 
   const { items, addItem, removeItem, updateQuantity, clearCart, totalItems } = useCart(slug);
   const [cartOpen, setCartOpen] = useState(false);
-  /** productId → selected variant label (or "__other__" sentinel) */
-  const [selectedVariants, setSelectedVariants] = useState<Record<number, string>>({});
-  /** productId → the custom text typed when "Other" is chosen */
-  const [otherInputs, setOtherInputs] = useState<Record<number, string>>({});
-  const [addedKeys, setAddedKeys] = useState<Set<string>>(new Set());
+  const [openProductId, setOpenProductId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const otherInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const filteredProducts = useMemo(() => {
     if (!searchQuery.trim()) return products;
     const q = searchQuery.toLowerCase();
-    return products?.filter(p =>
-      p.name.toLowerCase().includes(q) ||
-      (p.description ?? "").toLowerCase().includes(q)
+    return products?.filter(
+      (p) => p.name.toLowerCase().includes(q) || (p.description ?? "").toLowerCase().includes(q),
     );
   }, [products, searchQuery]);
 
   type ProductRow = NonNullable<typeof products>[number];
 
-  const handleAddToCart = (product: ProductRow, variantLabel?: string) => {
-    addItem({ id: product.id, name: product.name, price: product.price, imageUrl: product.imageUrl, variantLabel });
-    const key = variantLabel ? `${product.id}:${variantLabel}` : `${product.id}`;
-    setAddedKeys(prev => { const n = new Set(prev); n.add(key); return n; });
-    setTimeout(() => setAddedKeys(prev => { const n = new Set(prev); n.delete(key); return n; }), 1500);
+  // The product currently selected for the detail dialog
+  const openProduct = useMemo<DetailProduct | null>(() => {
+    if (openProductId === null || !products) return null;
+    const p = products.find((x) => x.id === openProductId) as (ProductRow & { images?: { url: string }[] }) | undefined;
+    if (!p) return null;
+    return {
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      price: p.price,
+      imageUrl: p.imageUrl,
+      inStock: p.inStock,
+      hasVariants: p.hasVariants,
+      variants: p.variants,
+      images: p.images,
+    };
+  }, [openProductId, products]);
+
+  // Sum cart quantity for the open product across all variants (used as "X in cart" hint)
+  const inCartQuantityForOpen = useMemo(() => {
+    if (!openProduct) return 0;
+    return items.filter((i) => i.id === openProduct.id).reduce((s, i) => s + i.quantity, 0);
+  }, [items, openProduct]);
+
+  const handleAddFromDialog = (variantLabel?: string) => {
+    if (!openProduct) return;
+    addItem({
+      id: openProduct.id,
+      name: openProduct.name,
+      price: openProduct.price,
+      imageUrl: openProduct.imageUrl,
+      variantLabel,
+    });
   };
 
   if (!match) return null;
@@ -221,7 +236,9 @@ export default function Storefront() {
         </div>
         <div className="container mx-auto px-4 py-12 max-w-5xl">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-            {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-96 rounded-3xl" />)}
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <Skeleton key={i} className="h-96 rounded-3xl" />
+            ))}
           </div>
         </div>
       </div>
@@ -233,7 +250,10 @@ export default function Storefront() {
       {/* Store header */}
       <div className="bg-card border-b pt-10 pb-12 shadow-sm">
         <div className="container mx-auto px-4 max-w-5xl">
-          <Link href="/" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-6">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-6"
+          >
             <ShoppingBag className="w-3.5 h-3.5" />
             <span className="font-serif font-semibold">QuickShop</span>
             <span className="opacity-50">·</span>
@@ -274,12 +294,15 @@ export default function Storefront() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
             <Input
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search products..."
               className="pl-9 pr-9 rounded-xl"
             />
             {searchQuery && (
-              <button onClick={() => setSearchQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
                 <X className="w-4 h-4" />
               </button>
             )}
@@ -288,7 +311,9 @@ export default function Storefront() {
 
         {isProductsLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-            {[1, 2, 3].map(i => <Skeleton key={i} className="h-96 rounded-3xl" />)}
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-96 rounded-3xl" />
+            ))}
           </div>
         ) : productsError ? (
           <div className="text-center py-20">
@@ -305,164 +330,73 @@ export default function Storefront() {
           <div className="text-center py-20">
             <Search className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
             <h3 className="text-lg font-medium text-foreground mb-1">No products match "{searchQuery}"</h3>
-            <button onClick={() => setSearchQuery("")} className="text-sm text-primary underline underline-offset-4">Clear search</button>
+            <button onClick={() => setSearchQuery("")} className="text-sm text-primary underline underline-offset-4">
+              Clear search
+            </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-8 sm:gap-x-8 sm:gap-y-12">
             {filteredProducts?.map((product, productIdx) => {
               const p = product as typeof product & { images?: { url: string }[] };
-              // Build full image list: gallery images, fall back to imageUrl
               const galleryUrls = (p.images ?? []).map((img: { url: string }) => img.url);
-              const imageUrls = galleryUrls.length > 0 ? galleryUrls : (product.imageUrl ? [product.imageUrl] : []);
-
+              const imageUrls = galleryUrls.length > 0 ? galleryUrls : product.imageUrl ? [product.imageUrl] : [];
               const hasVariants = product.hasVariants && product.variants.length > 0;
-              const rawSelection = selectedVariants[product.id] ?? "";
-              const isOtherSelected = rawSelection === "__other__";
-              const otherText = (otherInputs[product.id] ?? "").trim();
-              // The label that actually goes into the cart
-              const effectiveLabel = isOtherSelected ? otherText : rawSelection;
-              const selectedVariant = hasVariants && !isOtherSelected
-                ? product.variants.find(v => v.label === rawSelection)
-                : undefined;
-              const anyVariantInStock = hasVariants ? product.variants.some(v => v.inStock) : true;
+              const anyVariantInStock = hasVariants ? product.variants.some((v) => v.inStock) : true;
               const outOfStock = hasVariants ? !anyVariantInStock : product.inStock === false;
-              const selectedVariantOos = hasVariants && !isOtherSelected && rawSelection
-                ? selectedVariant?.inStock === false
-                : false;
-              const cartKey = effectiveLabel ? `${product.id}:${effectiveLabel}` : `${product.id}`;
-              const inCart = items.find(i => i.id === product.id && i.variantLabel === (effectiveLabel || undefined));
-              const justAdded = addedKeys.has(cartKey);
-              const hasValidSelection = !hasVariants || (
-                isOtherSelected ? otherText.length > 0 : (!!rawSelection && !selectedVariantOos)
-              );
-              const canAdd = !outOfStock && hasValidSelection;
+              const inCartCount = items.filter((i) => i.id === product.id).reduce((s, i) => s + i.quantity, 0);
 
               return (
                 <Card
                   key={product.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setOpenProductId(product.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setOpenProductId(product.id);
+                    }
+                  }}
                   style={{ animationDelay: `${Math.min(productIdx, 8) * 60}ms` }}
-                  className={`qs-card-in overflow-hidden rounded-3xl border-border shadow-sm flex flex-col h-full bg-card transition-all duration-300 hover:shadow-lg hover:-translate-y-1 ${outOfStock ? "opacity-70" : ""}`}
+                  className={`qs-card-in cursor-pointer overflow-hidden rounded-3xl border-border shadow-sm flex flex-col h-full bg-card transition-all duration-300 hover:shadow-lg hover:-translate-y-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
+                    outOfStock ? "opacity-70" : ""
+                  }`}
                 >
                   <ImageCarousel urls={imageUrls} alt={product.name} outOfStock={outOfStock} />
 
                   <CardContent className="p-4 sm:p-6 flex-1 flex flex-col">
-                    <div className="flex justify-between items-start mb-3 gap-4">
-                      <h3 className="font-bold text-xl text-foreground">{product.name}</h3>
-                      <span className="font-bold text-primary bg-primary/10 px-3 py-1 rounded-full whitespace-nowrap">{store?.currency} {product.price}</span>
+                    <div className="flex justify-between items-start mb-2 gap-3">
+                      <h3 className="font-bold text-lg sm:text-xl text-foreground line-clamp-1">{product.name}</h3>
+                      <span className="font-bold text-primary bg-primary/10 px-3 py-1 rounded-full whitespace-nowrap text-sm">
+                        {store?.currency} {product.price}
+                      </span>
                     </div>
+
                     {product.description && (
-                      <p className="text-muted-foreground text-sm leading-relaxed mb-4 flex-1">{product.description}</p>
+                      <p className="text-muted-foreground text-sm leading-relaxed mb-4 line-clamp-2 flex-1">
+                        {product.description}
+                      </p>
                     )}
 
-                    {/* Variant picker */}
-                    {hasVariants && (
-                      <div className="mb-4">
-                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                          Select Size / Option
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {product.variants.map(variant => {
-                            const isSelected = rawSelection === variant.label && !isOtherSelected;
-                            const isOos = !variant.inStock;
-                            return (
-                              <button
-                                key={variant.id}
-                                onClick={() => {
-                                  if (isOos) return;
-                                  setSelectedVariants(prev => ({
-                                    ...prev,
-                                    [product.id]: isSelected ? "" : variant.label,
-                                  }));
-                                }}
-                                className={[
-                                  "px-3 py-1.5 rounded-lg text-sm font-medium border transition-all duration-200 ease-out select-none",
-                                  isOos
-                                    ? "opacity-40 cursor-not-allowed border-border text-muted-foreground line-through"
-                                    : isSelected
-                                    ? "bg-primary text-primary-foreground border-primary shadow-md scale-105"
-                                    : "bg-background border-border text-foreground hover:border-primary/60 hover:scale-105 active:scale-95",
-                                ].join(" ")}
-                                title={isOos ? "Out of stock" : undefined}
-                              >
-                                {variant.label}
-                              </button>
-                            );
-                          })}
-
-                          {/* "Other" button */}
-                          <button
-                            onClick={() => {
-                              const next = isOtherSelected ? "" : "__other__";
-                              setSelectedVariants(prev => ({ ...prev, [product.id]: next }));
-                              if (next === "__other__") {
-                                setTimeout(() => otherInputRefs.current[product.id]?.focus(), 50);
-                              }
-                            }}
-                            className={[
-                              "px-3 py-1.5 rounded-lg text-sm font-medium border transition-all duration-200 ease-out select-none flex items-center gap-1.5",
-                              isOtherSelected
-                                ? "bg-primary text-primary-foreground border-primary shadow-md scale-105"
-                                : "bg-background border-dashed border-border text-muted-foreground hover:border-primary/60 hover:text-foreground hover:scale-105 active:scale-95",
-                            ].join(" ")}
-                          >
-                            <Pencil className="w-3 h-3" />
-                            Other
-                          </button>
-                        </div>
-
-                        {/* Custom input shown when "Other" is selected */}
-                        {isOtherSelected && (
-                          <div className="mt-2.5 qs-slide-down">
-                            <input
-                              ref={el => { otherInputRefs.current[product.id] = el; }}
-                              type="text"
-                              value={otherInputs[product.id] ?? ""}
-                              onChange={e => setOtherInputs(prev => ({ ...prev, [product.id]: e.target.value }))}
-                              placeholder="Type your preferred size or option…"
-                              className="w-full px-3 py-2 text-sm rounded-xl border border-primary/40 bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 transition-shadow"
-                            />
-                          </div>
-                        )}
-
-                        {/* Helper hints */}
-                        {!rawSelection && (
-                          <p className="text-xs text-muted-foreground mt-1.5">Pick a size or choose "Other" to type your own</p>
-                        )}
-                        {selectedVariantOos && (
-                          <p className="text-xs text-destructive mt-1.5 flex items-center gap-1">
-                            <PackageX className="w-3 h-3" /> This size is out of stock
-                          </p>
-                        )}
-                        {isOtherSelected && !otherText && (
-                          <p className="text-xs text-muted-foreground mt-1.5">Type your option above to continue</p>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="mt-auto pt-2">
-                      <Button
-                        onClick={() => canAdd && handleAddToCart(product, effectiveLabel || undefined)}
-                        className={`w-full rounded-2xl h-12 transition-all duration-300 ease-out active:scale-[0.98] ${justAdded ? "scale-[1.02] shadow-lg" : ""}`}
-                        size="lg"
-                        disabled={!canAdd}
-                        variant={justAdded ? "default" : inCart ? "secondary" : "default"}
-                      >
-                        {outOfStock ? (
-                          <><PackageX className="w-5 h-5 mr-2" /> Out of Stock</>
-                        ) : hasVariants && !rawSelection ? (
-                          <><ShoppingCart className="w-5 h-5 mr-2" /> Select a Size</>
-                        ) : isOtherSelected && !otherText ? (
-                          <><Pencil className="w-5 h-5 mr-2" /> Type your option above</>
-                        ) : selectedVariantOos ? (
-                          <><PackageX className="w-5 h-5 mr-2" /> Out of Stock</>
-                        ) : justAdded ? (
-                          <><Check className="w-5 h-5 mr-2" /> Added!</>
-                        ) : inCart ? (
-                          <><Plus className="w-5 h-5 mr-2" /> Add Again ({inCart.quantity} in cart)</>
+                    <div className="mt-auto pt-2 flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground flex items-center gap-1.5">
+                        {hasVariants ? (
+                          <>
+                            <span className="font-medium">{product.variants.length}</span> options
+                          </>
+                        ) : outOfStock ? (
+                          <span className="text-destructive flex items-center gap-1">
+                            <PackageX className="w-3.5 h-3.5" /> Out of stock
+                          </span>
+                        ) : inCartCount > 0 ? (
+                          <span className="text-primary font-medium">{inCartCount} in cart</span>
                         ) : (
-                          <><ShoppingCart className="w-5 h-5 mr-2" /> Add to Cart</>
+                          <>Tap for details</>
                         )}
-                      </Button>
+                      </span>
+                      <span className="text-primary font-semibold flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
+                        View <ChevronsRight className="w-4 h-4" />
+                      </span>
                     </div>
                   </CardContent>
                 </Card>
@@ -473,10 +407,24 @@ export default function Storefront() {
       </div>
 
       <footer className="bg-muted py-12 border-t text-center">
-        <Link href="/" className="text-muted-foreground flex items-center justify-center gap-2 hover:text-foreground transition-colors">
-          Powered by <ShoppingBag className="w-4 h-4" /> <span className="font-serif font-bold text-foreground">QuickShop</span>
+        <Link
+          href="/"
+          className="text-muted-foreground flex items-center justify-center gap-2 hover:text-foreground transition-colors"
+        >
+          Powered by <ShoppingBag className="w-4 h-4" />{" "}
+          <span className="font-serif font-bold text-foreground">QuickShop</span>
         </Link>
       </footer>
+
+      {/* Product detail dialog (handles options + add to cart) */}
+      <ProductDetailDialog
+        open={openProductId !== null}
+        onOpenChange={(o) => { if (!o) setOpenProductId(null); }}
+        product={openProduct}
+        currency={store?.currency ?? "GHS"}
+        inCartQuantity={inCartQuantityForOpen}
+        onAddToCart={handleAddFromDialog}
+      />
 
       <CartDrawer
         open={cartOpen}
