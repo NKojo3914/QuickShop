@@ -433,6 +433,14 @@ export default function Dashboard() {
         ? data.variants.filter((v: VariantRow) => v.label.trim()).map((v: VariantRow, i: number) => ({ label: v.label.trim(), inStock: v.inStock, sortOrder: i }))
         : [],
     };
+    const describeError = (err: unknown): string => {
+      if (err instanceof Error) return err.message;
+      if (typeof err === "object" && err !== null) {
+        const e = err as { error?: string; message?: string; response?: { data?: { error?: string } } };
+        return e.response?.data?.error || e.error || e.message || "Unknown error";
+      }
+      return String(err);
+    };
     if (editingProductId) {
       updateProductMutation.mutate({ id: editingProductId, data: payload }, {
         onSuccess: () => {
@@ -440,7 +448,11 @@ export default function Dashboard() {
           queryClient.invalidateQueries({ queryKey: getGetStoreSummaryQueryKey(store.id) });
           setIsProductModalOpen(false);
           toast({ title: "Product updated" });
-        }
+        },
+        onError: (err) => {
+          console.error("Update product failed:", err);
+          toast({ variant: "destructive", title: "Couldn't update product", description: describeError(err) });
+        },
       });
     } else {
       createProductMutation.mutate({ storeId: store.id, data: payload }, {
@@ -449,7 +461,11 @@ export default function Dashboard() {
           queryClient.invalidateQueries({ queryKey: getGetStoreSummaryQueryKey(store.id) });
           setIsProductModalOpen(false);
           toast({ title: "Product added" });
-        }
+        },
+        onError: (err) => {
+          console.error("Create product failed:", err);
+          toast({ variant: "destructive", title: "Couldn't add product", description: describeError(err) });
+        },
       });
     }
   };
