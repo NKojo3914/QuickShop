@@ -33,6 +33,10 @@ import { CartDrawer } from "@/components/CartDrawer";
 function ImageCarousel({ urls, alt, outOfStock }: { urls: string[]; alt: string; outOfStock: boolean }) {
   const [idx, setIdx] = useState(0);
   const total = urls.length;
+  // Touch / swipe state
+  const touchStartX = useRef<number | null>(null);
+  const touchDeltaX = useRef(0);
+  const [dragOffset, setDragOffset] = useState(0); // px
 
   if (total === 0) {
     return (
@@ -43,16 +47,60 @@ function ImageCarousel({ urls, alt, outOfStock }: { urls: string[]; alt: string;
     );
   }
 
-  const prev = (e: React.MouseEvent) => { e.stopPropagation(); setIdx(i => (i - 1 + total) % total); };
-  const next = (e: React.MouseEvent) => { e.stopPropagation(); setIdx(i => (i + 1) % total); };
+  const goTo = (next: number) => setIdx(((next % total) + total) % total);
+  const prev = (e: React.MouseEvent) => { e.stopPropagation(); goTo(idx - 1); };
+  const next = (e: React.MouseEvent) => { e.stopPropagation(); goTo(idx + 1); };
+
+  // ── Touch handlers ─────────────────────────────────────────────────────
+  const onTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchDeltaX.current = 0;
+  };
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (touchStartX.current === null) return;
+    touchDeltaX.current = e.touches[0].clientX - touchStartX.current;
+    setDragOffset(touchDeltaX.current);
+  };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null) return;
+    const width = (e.currentTarget as HTMLElement).clientWidth;
+    const delta = touchDeltaX.current;
+    // Swipe needs to cover at least 15% of the carousel width to count
+    if (Math.abs(delta) > width * 0.15) {
+      goTo(idx + (delta < 0 ? 1 : -1));
+    }
+    touchStartX.current = null;
+    touchDeltaX.current = 0;
+    setDragOffset(0);
+  };
 
   return (
-    <div className="aspect-square w-full bg-muted relative overflow-hidden group/carousel">
-      <img
-        src={`/api/storage${urls[idx]}`}
-        alt={`${alt} — photo ${idx + 1}`}
-        className="w-full h-full object-cover transition-transform hover:scale-105 duration-500"
-      />
+    <div
+      className="aspect-square w-full bg-muted relative overflow-hidden group/carousel"
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
+      {/* Slider track — every image side-by-side, animated via translateX */}
+      <div
+        className="flex h-full w-full will-change-transform"
+        style={{
+          transform: `translateX(calc(-${idx * 100}% + ${dragOffset}px))`,
+          transition: dragOffset === 0 ? "transform 450ms cubic-bezier(0.22, 1, 0.36, 1)" : "none",
+        }}
+      >
+        {urls.map((url, i) => (
+          <div key={url + i} className="w-full h-full shrink-0 overflow-hidden">
+            <img
+              src={`/api/storage${url}`}
+              alt={`${alt} — photo ${i + 1}`}
+              draggable={false}
+              loading={i === 0 ? "eager" : "lazy"}
+              className="w-full h-full object-cover select-none transition-transform duration-700 group-hover/carousel:scale-105"
+            />
+          </div>
+        ))}
+      </div>
 
       {outOfStock && <OosBadge />}
 
@@ -61,24 +109,32 @@ function ImageCarousel({ urls, alt, outOfStock }: { urls: string[]; alt: string;
         <>
           <button
             onClick={prev}
-            className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/40 hover:bg-black/60 text-white rounded-full p-1 opacity-0 group-hover/carousel:opacity-100 transition-opacity"
+            aria-label="Previous photo"
+            className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 opacity-0 group-hover/carousel:opacity-100 transition-all duration-300 hover:scale-110 active:scale-95"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
           <button
             onClick={next}
-            className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/40 hover:bg-black/60 text-white rounded-full p-1 opacity-0 group-hover/carousel:opacity-100 transition-opacity"
+            aria-label="Next photo"
+            className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 opacity-0 group-hover/carousel:opacity-100 transition-all duration-300 hover:scale-110 active:scale-95"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
 
           {/* Dot indicators */}
-          <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
+          <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
             {urls.map((_, i) => (
               <button
                 key={i}
-                onClick={e => { e.stopPropagation(); setIdx(i); }}
-                className={`w-1.5 h-1.5 rounded-full transition-all ${i === idx ? "bg-white scale-125" : "bg-white/50"}`}
+                onClick={e => { e.stopPropagation(); goTo(i); }}
+                aria-label={`Go to photo ${i + 1}`}
+                className={[
+                  "h-1.5 rounded-full transition-all duration-300 ease-out",
+                  i === idx
+                    ? "w-5 bg-white shadow-md"
+                    : "w-1.5 bg-white/60 hover:bg-white/80",
+                ].join(" ")}
               />
             ))}
           </div>
@@ -253,7 +309,7 @@ export default function Storefront() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-8 sm:gap-x-8 sm:gap-y-12">
-            {filteredProducts?.map(product => {
+            {filteredProducts?.map((product, productIdx) => {
               const p = product as typeof product & { images?: { url: string }[] };
               // Build full image list: gallery images, fall back to imageUrl
               const galleryUrls = (p.images ?? []).map((img: { url: string }) => img.url);
@@ -282,7 +338,11 @@ export default function Storefront() {
               const canAdd = !outOfStock && hasValidSelection;
 
               return (
-                <Card key={product.id} className={`overflow-hidden rounded-3xl border-border shadow-sm flex flex-col h-full bg-card ${outOfStock ? "opacity-70" : ""}`}>
+                <Card
+                  key={product.id}
+                  style={{ animationDelay: `${Math.min(productIdx, 8) * 60}ms` }}
+                  className={`qs-card-in overflow-hidden rounded-3xl border-border shadow-sm flex flex-col h-full bg-card transition-all duration-300 hover:shadow-lg hover:-translate-y-1 ${outOfStock ? "opacity-70" : ""}`}
+                >
                   <ImageCarousel urls={imageUrls} alt={product.name} outOfStock={outOfStock} />
 
                   <CardContent className="p-4 sm:p-6 flex-1 flex flex-col">
@@ -315,12 +375,12 @@ export default function Storefront() {
                                   }));
                                 }}
                                 className={[
-                                  "px-3 py-1.5 rounded-lg text-sm font-medium border transition-all select-none",
+                                  "px-3 py-1.5 rounded-lg text-sm font-medium border transition-all duration-200 ease-out select-none",
                                   isOos
                                     ? "opacity-40 cursor-not-allowed border-border text-muted-foreground line-through"
                                     : isSelected
-                                    ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                                    : "bg-background border-border text-foreground hover:border-primary/60",
+                                    ? "bg-primary text-primary-foreground border-primary shadow-md scale-105"
+                                    : "bg-background border-border text-foreground hover:border-primary/60 hover:scale-105 active:scale-95",
                                 ].join(" ")}
                                 title={isOos ? "Out of stock" : undefined}
                               >
@@ -339,10 +399,10 @@ export default function Storefront() {
                               }
                             }}
                             className={[
-                              "px-3 py-1.5 rounded-lg text-sm font-medium border transition-all select-none flex items-center gap-1.5",
+                              "px-3 py-1.5 rounded-lg text-sm font-medium border transition-all duration-200 ease-out select-none flex items-center gap-1.5",
                               isOtherSelected
-                                ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                                : "bg-background border-dashed border-border text-muted-foreground hover:border-primary/60 hover:text-foreground",
+                                ? "bg-primary text-primary-foreground border-primary shadow-md scale-105"
+                                : "bg-background border-dashed border-border text-muted-foreground hover:border-primary/60 hover:text-foreground hover:scale-105 active:scale-95",
                             ].join(" ")}
                           >
                             <Pencil className="w-3 h-3" />
@@ -352,14 +412,14 @@ export default function Storefront() {
 
                         {/* Custom input shown when "Other" is selected */}
                         {isOtherSelected && (
-                          <div className="mt-2.5">
+                          <div className="mt-2.5 qs-slide-down">
                             <input
                               ref={el => { otherInputRefs.current[product.id] = el; }}
                               type="text"
                               value={otherInputs[product.id] ?? ""}
                               onChange={e => setOtherInputs(prev => ({ ...prev, [product.id]: e.target.value }))}
                               placeholder="Type your preferred size or option…"
-                              className="w-full px-3 py-2 text-sm rounded-xl border border-primary/40 bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
+                              className="w-full px-3 py-2 text-sm rounded-xl border border-primary/40 bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 transition-shadow"
                             />
                           </div>
                         )}
@@ -382,7 +442,7 @@ export default function Storefront() {
                     <div className="mt-auto pt-2">
                       <Button
                         onClick={() => canAdd && handleAddToCart(product, effectiveLabel || undefined)}
-                        className="w-full rounded-2xl h-12"
+                        className={`w-full rounded-2xl h-12 transition-all duration-300 ease-out active:scale-[0.98] ${justAdded ? "scale-[1.02] shadow-lg" : ""}`}
                         size="lg"
                         disabled={!canAdd}
                         variant={justAdded ? "default" : inCart ? "secondary" : "default"}
