@@ -62,9 +62,14 @@ if (process.env.NODE_ENV === "production") {
 // errors fall through to Express's default HTML error page, which the
 // frontend can't usefully parse for toasts.
 const jsonErrorHandler: ErrorRequestHandler = (err, req, res, _next) => {
-  logger.error({ err, path: req.path, method: req.method }, "Unhandled API error");
+  // Pull the underlying pg error out of err.cause so we log something useful
+  const cause = (err as { cause?: unknown })?.cause;
+  logger.error({ err, cause, path: req.path, method: req.method }, "Unhandled API error");
   if (res.headersSent) return;
-  const message = err instanceof Error ? err.message : "Internal Server Error";
+  const causeMsg = (cause as { message?: string; detail?: string } | undefined)?.message
+    ?? (cause as { detail?: string } | undefined)?.detail;
+  const message = causeMsg
+    || (err instanceof Error ? err.message : "Internal Server Error");
   res.status(500).json({ error: message });
 };
 app.use(jsonErrorHandler);

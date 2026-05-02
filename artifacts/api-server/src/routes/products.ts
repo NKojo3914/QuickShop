@@ -21,6 +21,35 @@ type ProductRow = typeof productsTable.$inferSelect;
 type VariantRow = typeof productVariantsTable.$inferSelect;
 type ImageRow = typeof productImagesTable.$inferSelect;
 
+/**
+ * Drizzle wraps the underlying pg error and its `.message` is just the
+ * formatted SQL — the actual reason (column missing, NOT NULL violation,
+ * foreign-key violation, etc.) lives on `err.cause`. Pull it out so the
+ * frontend can show something useful in a toast.
+ */
+function extractDbError(err: unknown, fallback: string): string {
+  const e = err as Error & {
+    cause?: { message?: string; code?: string; detail?: string; column?: string; constraint?: string };
+    code?: string;
+    detail?: string;
+  };
+  // node-postgres errors arrive on .cause inside Drizzle's wrapper
+  const cause = e.cause;
+  const causeMsg = cause?.message || cause?.detail;
+  const code = cause?.code || e.code;
+  const constraint = cause?.constraint;
+  const column = cause?.column;
+  const parts: string[] = [];
+  if (causeMsg) parts.push(causeMsg);
+  if (code) parts.push(`(code: ${code})`);
+  if (column) parts.push(`column: ${column}`);
+  if (constraint) parts.push(`constraint: ${constraint}`);
+  if (parts.length === 0) {
+    return e instanceof Error ? e.message : fallback;
+  }
+  return parts.join(" ");
+}
+
 /** Attach variants + images to a list of products in two extra queries */
 async function attachRelated(products: ProductRow[]) {
   if (products.length === 0) {
@@ -143,7 +172,7 @@ router.post("/stores/:storeId/products", requireAuth, async (req, res): Promise<
     res.status(201).json(GetProductResponse.parse({ ...product, variants: insertedVariants, images: insertedImages }));
   } catch (err) {
     console.error("Create product failed:", err);
-    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to create product" });
+    res.status(500).json({ error: extractDbError(err, "Failed to create product") });
   }
 });
 
@@ -223,7 +252,7 @@ router.patch("/products/:id", requireAuth, async (req, res): Promise<void> => {
   res.json(UpdateProductResponse.parse({ ...product, variants: currentVariants, images: currentImages }));
   } catch (err) {
     console.error("Update product failed:", err);
-    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to update product" });
+    res.status(500).json({ error: extractDbError(err, "Failed to update product") });
   }
 });
 
