@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
-import { Image as ImageIcon, Loader2, Plus, Trash2, X } from "lucide-react";
-import type { UseFormReturn } from "react-hook-form";
+import { Loader2, Plus, Trash2, X } from "lucide-react";
+import type { UseFormReturn, FieldErrors } from "react-hook-form";
+import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
   DialogContent,
@@ -96,6 +97,27 @@ export function ProductFormDialog({
   const images = form.watch("images") ?? [];
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [customSize, setCustomSize] = useState("");
+  const { toast } = useToast();
+
+  // Surface react-hook-form validation errors as a toast + auto-scroll,
+  // since the dialog scrolls and errors at the top can be invisible.
+  const onInvalid = (errors: FieldErrors<ProductFormValues>) => {
+    const fieldLabels: Record<string, string> = {
+      name: "Product Name",
+      price: "Price",
+      images: "Photos",
+      variants: "Variants",
+    };
+    const firstKey = Object.keys(errors)[0] as keyof ProductFormValues | undefined;
+    const firstError = firstKey ? errors[firstKey] : undefined;
+    const label = (firstKey && fieldLabels[firstKey]) || firstKey || "Form";
+    const msg = (firstError && (firstError as { message?: string }).message) || "Please fill in all required fields";
+    toast({ variant: "destructive", title: `Missing: ${label}`, description: msg });
+    // Scroll the dialog body up so the offending field becomes visible
+    document
+      .querySelector('[role="dialog"]')
+      ?.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   // ── Image helpers ────────────────────────────────────────────────────────
 
@@ -169,7 +191,7 @@ export function ProductFormDialog({
         </DialogHeader>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5 py-4">
+          <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-5 py-4">
 
             {/* ── Image gallery ──────────────────────────────────────────── */}
             <div className="space-y-2">
