@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useRoute, Link } from "wouter";
 import {
   Store,
@@ -12,6 +12,7 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  Pencil,
 } from "lucide-react";
 import {
   useGetStoreBySlug,
@@ -113,9 +114,13 @@ export default function Storefront() {
 
   const { items, addItem, removeItem, updateQuantity, clearCart, totalItems } = useCart(slug);
   const [cartOpen, setCartOpen] = useState(false);
+  /** productId → selected variant label (or "__other__" sentinel) */
   const [selectedVariants, setSelectedVariants] = useState<Record<number, string>>({});
+  /** productId → the custom text typed when "Other" is chosen */
+  const [otherInputs, setOtherInputs] = useState<Record<number, string>>({});
   const [addedKeys, setAddedKeys] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
+  const otherInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const filteredProducts = useMemo(() => {
     if (!searchQuery.trim()) return products;
@@ -255,15 +260,26 @@ export default function Storefront() {
               const imageUrls = galleryUrls.length > 0 ? galleryUrls : (product.imageUrl ? [product.imageUrl] : []);
 
               const hasVariants = product.hasVariants && product.variants.length > 0;
-              const selectedLabel = selectedVariants[product.id];
-              const selectedVariant = hasVariants ? product.variants.find(v => v.label === selectedLabel) : undefined;
+              const rawSelection = selectedVariants[product.id] ?? "";
+              const isOtherSelected = rawSelection === "__other__";
+              const otherText = (otherInputs[product.id] ?? "").trim();
+              // The label that actually goes into the cart
+              const effectiveLabel = isOtherSelected ? otherText : rawSelection;
+              const selectedVariant = hasVariants && !isOtherSelected
+                ? product.variants.find(v => v.label === rawSelection)
+                : undefined;
               const anyVariantInStock = hasVariants ? product.variants.some(v => v.inStock) : true;
               const outOfStock = hasVariants ? !anyVariantInStock : product.inStock === false;
-              const selectedVariantOos = hasVariants && selectedLabel ? selectedVariant?.inStock === false : false;
-              const cartKey = selectedLabel ? `${product.id}:${selectedLabel}` : `${product.id}`;
-              const inCart = items.find(i => i.id === product.id && i.variantLabel === (selectedLabel || undefined));
+              const selectedVariantOos = hasVariants && !isOtherSelected && rawSelection
+                ? selectedVariant?.inStock === false
+                : false;
+              const cartKey = effectiveLabel ? `${product.id}:${effectiveLabel}` : `${product.id}`;
+              const inCart = items.find(i => i.id === product.id && i.variantLabel === (effectiveLabel || undefined));
               const justAdded = addedKeys.has(cartKey);
-              const canAdd = !outOfStock && (!hasVariants || (!!selectedLabel && !selectedVariantOos));
+              const hasValidSelection = !hasVariants || (
+                isOtherSelected ? otherText.length > 0 : (!!rawSelection && !selectedVariantOos)
+              );
+              const canAdd = !outOfStock && hasValidSelection;
 
               return (
                 <Card key={product.id} className={`overflow-hidden rounded-3xl border-border shadow-sm flex flex-col h-full bg-card ${outOfStock ? "opacity-70" : ""}`}>
@@ -281,20 +297,25 @@ export default function Storefront() {
                     {/* Variant picker */}
                     {hasVariants && (
                       <div className="mb-4">
-                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Select Size / Option</p>
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                          Select Size / Option
+                        </p>
                         <div className="flex flex-wrap gap-2">
                           {product.variants.map(variant => {
-                            const isSelected = selectedLabel === variant.label;
+                            const isSelected = rawSelection === variant.label && !isOtherSelected;
                             const isOos = !variant.inStock;
                             return (
                               <button
                                 key={variant.id}
                                 onClick={() => {
                                   if (isOos) return;
-                                  setSelectedVariants(prev => ({ ...prev, [product.id]: isSelected ? "" : variant.label }));
+                                  setSelectedVariants(prev => ({
+                                    ...prev,
+                                    [product.id]: isSelected ? "" : variant.label,
+                                  }));
                                 }}
                                 className={[
-                                  "relative px-3 py-1.5 rounded-lg text-sm font-medium border transition-all select-none",
+                                  "px-3 py-1.5 rounded-lg text-sm font-medium border transition-all select-none",
                                   isOos
                                     ? "opacity-40 cursor-not-allowed border-border text-muted-foreground line-through"
                                     : isSelected
@@ -307,21 +328,60 @@ export default function Storefront() {
                               </button>
                             );
                           })}
+
+                          {/* "Other" button */}
+                          <button
+                            onClick={() => {
+                              const next = isOtherSelected ? "" : "__other__";
+                              setSelectedVariants(prev => ({ ...prev, [product.id]: next }));
+                              if (next === "__other__") {
+                                setTimeout(() => otherInputRefs.current[product.id]?.focus(), 50);
+                              }
+                            }}
+                            className={[
+                              "px-3 py-1.5 rounded-lg text-sm font-medium border transition-all select-none flex items-center gap-1.5",
+                              isOtherSelected
+                                ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                : "bg-background border-dashed border-border text-muted-foreground hover:border-primary/60 hover:text-foreground",
+                            ].join(" ")}
+                          >
+                            <Pencil className="w-3 h-3" />
+                            Other
+                          </button>
                         </div>
-                        {hasVariants && !selectedLabel && (
-                          <p className="text-xs text-muted-foreground mt-1.5">Pick a size to add to cart</p>
+
+                        {/* Custom input shown when "Other" is selected */}
+                        {isOtherSelected && (
+                          <div className="mt-2.5">
+                            <input
+                              ref={el => { otherInputRefs.current[product.id] = el; }}
+                              type="text"
+                              value={otherInputs[product.id] ?? ""}
+                              onChange={e => setOtherInputs(prev => ({ ...prev, [product.id]: e.target.value }))}
+                              placeholder="Type your preferred size or option…"
+                              className="w-full px-3 py-2 text-sm rounded-xl border border-primary/40 bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
+                            />
+                          </div>
+                        )}
+
+                        {/* Helper hints */}
+                        {!rawSelection && (
+                          <p className="text-xs text-muted-foreground mt-1.5">Pick a size or choose "Other" to type your own</p>
                         )}
                         {selectedVariantOos && (
                           <p className="text-xs text-destructive mt-1.5 flex items-center gap-1">
                             <PackageX className="w-3 h-3" /> This size is out of stock
                           </p>
                         )}
+                        {isOtherSelected && !otherText && (
+                          <p className="text-xs text-muted-foreground mt-1.5">Type your option above to continue</p>
+                        )}
                       </div>
                     )}
 
                     <div className="mt-auto pt-2">
                       <Button
-                        onClick={() => canAdd && handleAddToCart(product, selectedLabel || undefined)}
+                        onClick={() => canAdd && handleAddToCart(product, effectiveLabel || undefined)}
                         className="w-full rounded-2xl h-12"
                         size="lg"
                         disabled={!canAdd}
@@ -329,8 +389,10 @@ export default function Storefront() {
                       >
                         {outOfStock ? (
                           <><PackageX className="w-5 h-5 mr-2" /> Out of Stock</>
-                        ) : hasVariants && !selectedLabel ? (
+                        ) : hasVariants && !rawSelection ? (
                           <><ShoppingCart className="w-5 h-5 mr-2" /> Select a Size</>
+                        ) : isOtherSelected && !otherText ? (
+                          <><Pencil className="w-5 h-5 mr-2" /> Type your option above</>
                         ) : selectedVariantOos ? (
                           <><PackageX className="w-5 h-5 mr-2" /> Out of Stock</>
                         ) : justAdded ? (
