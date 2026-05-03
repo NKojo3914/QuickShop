@@ -15,6 +15,7 @@ import {
   Coins,
   SlidersHorizontal,
   Banknote,
+  BarChart2,
 } from "lucide-react";
 import {
   useGetStoreBySlug,
@@ -61,6 +62,7 @@ import { TelegramSettingsDialog } from "@/components/dashboard/TelegramSettingsD
 import { CurrencyDialog } from "@/components/dashboard/CurrencyDialog";
 import { QrCodeDialog } from "@/components/dashboard/QrCodeDialog";
 import { PayoutSetupDialog } from "@/components/dashboard/PayoutSetupDialog";
+import { AnalyticsDialog } from "@/components/dashboard/AnalyticsDialog";
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -171,6 +173,7 @@ export default function Dashboard() {
   const [isStoreSettingsOpen, setIsStoreSettingsOpen] = useState(false);
   const [isQrOpen, setIsQrOpen] = useState(false);
   const [isPayoutSetupOpen, setIsPayoutSetupOpen] = useState(false);
+  const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
   const [shippingOrderId, setShippingOrderId] = useState<number | null>(null);
   const [verifyingOrderId, setVerifyingOrderId] = useState<number | null>(null);
 
@@ -649,6 +652,10 @@ export default function Dashboard() {
                     <span className="ml-auto w-2 h-2 rounded-full bg-green-500" />
                   )}
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsAnalyticsOpen(true)}>
+                  <BarChart2 className="w-4 h-4 mr-2 text-violet-500" />
+                  Analytics
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={handleLogout}
@@ -791,6 +798,11 @@ export default function Dashboard() {
           onSaved={() => queryClient.invalidateQueries({ queryKey: getGetStoreBySlugQueryKey(store.slug) })}
         />
       )}
+      <AnalyticsDialog
+        open={isAnalyticsOpen}
+        onOpenChange={setIsAnalyticsOpen}
+        storeSlug={store?.slug}
+      />
     </div>
   );
 }

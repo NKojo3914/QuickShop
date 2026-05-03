@@ -18,6 +18,7 @@ if (process.env.DATABASE_URL) {
   const searchRouter = (await import("./search")).default;
   const paymentsRouter = (await import("./payments")).default;
   const reviewsRouter = (await import("./reviews")).default;
+  const analyticsRouter = (await import("./analytics")).default;
 
   router.use(authRouter);
   router.use(storesRouter);
@@ -27,6 +28,7 @@ if (process.env.DATABASE_URL) {
   router.use(searchRouter);
   router.use(paymentsRouter);
   router.use(reviewsRouter);
+  router.use(analyticsRouter);
 }
 
 export default router;
