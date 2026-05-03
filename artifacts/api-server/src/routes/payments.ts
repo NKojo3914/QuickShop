@@ -301,6 +301,7 @@ router.post("/orders/:id/verify-delivery", requireAuth, async (req, res): Promis
 
   // If deliveryCode was never generated (order paid before this feature was deployed),
   // log and fall back to a manual release so existing orders aren't permanently stuck.
+  // Legacy orders pre-date the shipping flow, so we don't require shippedAt here.
   if (!order.deliveryCode) {
     try {
       const result = await releaseFundsToVendor(order, store, "manual");
@@ -309,6 +310,17 @@ router.post("/orders/:id/verify-delivery", requireAuth, async (req, res): Promis
       console.error("verify-delivery fallback release error:", err);
       res.status(502).json({ error: err instanceof Error ? err.message : "Release failed" });
     }
+    return;
+  }
+
+  // Modern flow: the seller MUST mark the order as shipped before releasing funds.
+  // Without this guard the buyer never gets the "shipped" notification and the 48h
+  // auto-release safety timer is never set — meaning a buyer who never receives
+  // the item has no recourse and we have no audit trail of when it shipped.
+  if (!order.shippedAt) {
+    res.status(400).json({
+      error: "Mark this order as shipped before releasing funds. The buyer must be notified that the item is on its way.",
+    });
     return;
   }
 
@@ -582,6 +594,15 @@ router.post("/orders/:id/release", requireAuth, async (req, res): Promise<void> 
   }
   if (order.paymentStatus !== "paid") { res.status(400).json({ error: "Order has not been paid" }); return; }
   if (order.releasedAt) { res.status(409).json({ error: "Funds already released" }); return; }
+
+  // Modern orders (with deliveryCode) must be shipped before releasing funds.
+  // Legacy orders without a deliveryCode skip this check so they aren't stuck.
+  if (order.deliveryCode && !order.shippedAt) {
+    res.status(400).json({
+      error: "Mark this order as shipped before releasing funds.",
+    });
+    return;
+  }
 
   try {
     const result = await releaseFundsToVendor(order, store, "manual");
