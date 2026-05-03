@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { Router, type IRouter, type Request } from "express";
 import { eq, and, lt, isNull, isNotNull } from "drizzle-orm";
 import { db, storesTable, ordersTable } from "@workspace/db";
@@ -544,6 +545,10 @@ async function releaseFundsToVendor(
     reference: transferRef,
   });
 
+  // Generate a one-time review token so we can ask the buyer for feedback
+  // without forcing them to authenticate.
+  const reviewToken = crypto.randomBytes(16).toString("hex");
+
   const now = new Date();
   await db.update(ordersTable).set({
     releasedAt: now,
@@ -552,6 +557,7 @@ async function releaseFundsToVendor(
     payoutReference: transfer.reference,
     payoutStatus: transfer.status === "success" ? "success" : "pending",
     status: "completed",
+    reviewToken,
   }).where(eq(ordersTable.id, order.id));
 
   // Clear vendor debt if we deducted some
@@ -564,10 +570,14 @@ async function releaseFundsToVendor(
   const cur = order.currency ?? store.currency ?? "GHS";
   const ref = `QS-${String(order.id).padStart(4, "0")}`;
 
-  // Notify buyer
+  // Notify buyer with a review-prompt link
   if (order.customerTelegramChatId && store.telegramBotToken) {
+    const baseUrl = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+    const reviewLine = baseUrl
+      ? `\n\n⭐ How was your experience? Rate *${store.name}* — it takes 10 seconds:\n${baseUrl}/review/${order.id}?token=${reviewToken}`
+      : "";
     await sendTelegramMsg(store.telegramBotToken, order.customerTelegramChatId,
-      `🎉 Order *${ref}* complete! Your payment has been released to *${store.name}*. Thank you for shopping! 😊`,
+      `🎉 Order *${ref}* complete! Your payment has been released to *${store.name}*. Thank you for shopping! 😊${reviewLine}`,
     );
   }
 

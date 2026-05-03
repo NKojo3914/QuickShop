@@ -9,6 +9,7 @@ import Storefront from "@/pages/storefront";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
 import PayCallback from "@/pages/pay-callback";
+import ReviewPage from "@/pages/review";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 const queryClient = new QueryClient();
@@ -24,6 +25,7 @@ function Router() {
       </Route>
       <Route path="/store/:slug" component={Storefront} />
       <Route path="/pay/callback" component={PayCallback} />
+      <Route path="/review/:orderId" component={ReviewPage} />
       <Route component={NotFound} />
     </Switch>
   );

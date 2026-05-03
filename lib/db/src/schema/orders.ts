@@ -52,6 +52,12 @@ export const ordersTable = pgTable("orders", {
   // ── Disputes ─────────────────────────────────────────────────────────────────
   disputeRaisedAt: timestamp("dispute_raised_at", { withTimezone: true }),
 
+  // ── Reviews ──────────────────────────────────────────────────────────────────
+  // One-time token for buyer to submit a review without authentication. Generated
+  // when funds are released (delivery confirmed) and embedded in the bot's
+  // "rate your experience" link.
+  reviewToken: text("review_token"),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

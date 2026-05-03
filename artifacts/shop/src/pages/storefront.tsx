@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useRoute, Link } from "wouter";
 import {
   Store,
@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsRight,
+  Star,
 } from "lucide-react";
 import {
   useGetStoreBySlug,
@@ -166,6 +167,20 @@ export default function Storefront() {
   const [openProductId, setOpenProductId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Reviews summary + recent list (fetched once when the slug resolves)
+  type ReviewItem = { id: number; rating: number; body: string | null; customerName: string | null; createdAt: string };
+  const [reviews, setReviews] = useState<{ count: number; average: number; reviews: ReviewItem[] } | null>(null);
+  useEffect(() => {
+    if (!slug) return;
+    (async () => {
+      try {
+        const r = await fetch(`/api/stores/${encodeURIComponent(slug)}/reviews`);
+        if (!r.ok) return;
+        setReviews(await r.json());
+      } catch { /* non-blocking */ }
+    })();
+  }, [slug]);
+
   const filteredProducts = useMemo(() => {
     if (!searchQuery.trim()) return products;
     const q = searchQuery.toLowerCase();
@@ -269,6 +284,18 @@ export default function Storefront() {
             )}
           </div>
           <h1 className="text-4xl md:text-5xl font-serif font-bold text-foreground mb-4">{store?.name}</h1>
+          {reviews && reviews.count > 0 && (
+            <a
+              href="#reviews"
+              className="inline-flex items-center gap-1.5 mb-4 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/50 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/50 transition-colors"
+            >
+              <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+              <span className="font-semibold text-sm">{reviews.average.toFixed(1)}</span>
+              <span className="text-xs text-amber-700/80 dark:text-amber-400/80">
+                ({reviews.count} {reviews.count === 1 ? "review" : "reviews"})
+              </span>
+            </a>
+          )}
           {store?.description && (
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed">{store.description}</p>
           )}
@@ -405,6 +432,64 @@ export default function Storefront() {
           </div>
         )}
       </div>
+
+      {/* Reviews section */}
+      {reviews && reviews.count > 0 && (
+        <div id="reviews" className="container mx-auto px-4 pb-16 max-w-5xl">
+          <div className="border-t pt-12">
+            <div className="flex items-end justify-between mb-6 gap-4">
+              <div>
+                <h2 className="text-2xl sm:text-3xl font-serif font-bold mb-1">What buyers say</h2>
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <div className="flex">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <Star
+                        key={n}
+                        className={`w-4 h-4 ${
+                          n <= Math.round(reviews.average) ? "fill-amber-400 text-amber-400" : "text-muted-foreground/30"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  <span className="text-sm">
+                    <span className="font-semibold text-foreground">{reviews.average.toFixed(1)}</span>{" "}
+                    · {reviews.count} {reviews.count === 1 ? "review" : "reviews"}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {reviews.reviews.slice(0, 8).map((r) => (
+                <div key={r.id} className="bg-card border rounded-2xl p-4 shadow-sm">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex">
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <Star
+                          key={n}
+                          className={`w-3.5 h-3.5 ${
+                            n <= r.rating ? "fill-amber-400 text-amber-400" : "text-muted-foreground/30"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(r.createdAt).toLocaleDateString()}
+                    </span>
+                  </div>
+                  {r.body && (
+                    <p className="text-sm text-foreground/90 leading-relaxed mb-2 whitespace-pre-line">
+                      {r.body}
+                    </p>
+                  )}
+                  {r.customerName && (
+                    <p className="text-xs text-muted-foreground">— {r.customerName}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <footer className="bg-muted py-12 border-t text-center">
         <Link

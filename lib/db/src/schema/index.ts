@@ -7,3 +7,4 @@ export * from "./orders";
 export * from "./telegramUpdates";
 export * from "./productVariants";
 export * from "./productImages";
+export * from "./reviews";
