@@ -229,6 +229,36 @@ export default function Dashboard() {
     });
   };
 
+  const [recheckingOrderId, setRecheckingOrderId] = useState<number | null>(null);
+
+  // Manually re-verify a pending order's payment with Paystack — used when the
+  // webhook didn't reach us (or the buyer never returned to the callback page)
+  // so the order is stuck in `paymentStatus: pending` despite a successful charge.
+  const handleRecheckPayment = async (orderId: number, paymentReference: string) => {
+    setRecheckingOrderId(orderId);
+    try {
+      const res = await fetch(`/api/payments/verify/${encodeURIComponent(paymentReference)}`, {
+        credentials: "include",
+      });
+      const data = await res.json() as { status?: string; error?: string };
+      if (!res.ok) throw new Error(data.error || "Verification failed");
+      if (data.status === "success") {
+        toast({ title: "Payment confirmed", description: "Order is ready to ship." });
+      } else {
+        toast({ title: `Payment status: ${data.status ?? "unknown"}`, description: "If the buyer paid, ask them to wait a moment and try again." });
+      }
+      queryClient.invalidateQueries({ queryKey: getListOrdersQueryKey(store?.id || 0) });
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Couldn't re-check payment",
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setRecheckingOrderId(null);
+    }
+  };
+
   const handleShipOrder = async (orderId: number) => {
     setShippingOrderId(orderId);
     try {
@@ -539,7 +569,13 @@ export default function Dashboard() {
     );
   }
 
-  const pendingCount = orders?.filter((o: { status: string }) => o.status === "pending").length ?? 0;
+  // Badge counts orders that need seller attention: unpaid pending orders +
+  // paid orders not yet shipped (the "Mark Shipped" queue).
+  const pendingCount = orders?.filter((o: { status: string; paymentStatus?: string | null; shippedAt?: string | null }) => {
+    const isUnpaidPending = o.status === "pending" && o.paymentStatus !== "paid";
+    const needsShipping = o.paymentStatus === "paid" && !o.shippedAt && o.status !== "completed" && o.status !== "cancelled";
+    return isUnpaidPending || needsShipping;
+  }).length ?? 0;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -734,8 +770,10 @@ export default function Dashboard() {
         onLogOrderOpen={() => setIsLogOrderOpen(true)}
         onShipOrder={handleShipOrder}
         onVerifyDelivery={handleVerifyDelivery}
+        onRecheckPayment={handleRecheckPayment}
         shippingOrderId={shippingOrderId}
         verifyingOrderId={verifyingOrderId}
+        recheckingOrderId={recheckingOrderId}
         storeCurrency={store?.currency}
       />
       {store?.slug && (

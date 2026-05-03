@@ -13,6 +13,7 @@ import {
   Loader2,
   ShieldCheck,
   KeyRound,
+  RefreshCcw,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { Order as BaseOrder } from "@workspace/api-client-react";
@@ -38,6 +39,7 @@ type Order = BaseOrder & {
   totalCharged?: string | null;
   currency?: string | null;
   paymentStatus?: string | null;
+  paymentReference?: string | null;
   paidAt?: string | null;
   shippedAt?: string | null;
   receivedAt?: string | null;
@@ -49,6 +51,21 @@ type Order = BaseOrder & {
   refundedAt?: string | null;
   refundReference?: string | null;
 };
+
+// ── Tab classification ────────────────────────────────────────────────────────
+// An order belongs to "Confirmed" (and so gets the shipping flow) whenever it
+// is paid, regardless of its `status` field — defensive against cases where
+// markOrderPaid hasn't fired (webhook not received, buyer closed callback, etc.)
+// "Pending" means: not paid AND awaiting seller action (WhatsApp orders) or
+// awaiting buyer payment (escrow orders).
+function isOrderInConfirmedTab(o: Order): boolean {
+  if (o.status === "completed" || o.status === "cancelled") return false;
+  return o.status === "confirmed" || o.paymentStatus === "paid";
+}
+function isOrderInPendingTab(o: Order): boolean {
+  if (o.paymentStatus === "paid") return false; // paid = belongs in Confirmed
+  return o.status === "pending";
+}
 
 function orderRef(id: number) {
   return `QS-${String(id).padStart(4, "0")}`;
@@ -94,8 +111,10 @@ export interface OrdersSidebarProps {
   onLogOrderOpen: () => void;
   onShipOrder?: (orderId: number) => void;
   onVerifyDelivery?: (orderId: number, code: string) => void;
+  onRecheckPayment?: (orderId: number, paymentReference: string) => void;
   shippingOrderId?: number | null;
   verifyingOrderId?: number | null;
+  recheckingOrderId?: number | null;
   storeCurrency?: string | null;
 }
 
@@ -111,8 +130,10 @@ export function OrdersSidebar({
   onLogOrderOpen,
   onShipOrder,
   onVerifyDelivery,
+  onRecheckPayment,
   shippingOrderId,
   verifyingOrderId,
+  recheckingOrderId,
   storeCurrency,
 }: OrdersSidebarProps) {
   const [deliveryCodes, setDeliveryCodes] = useState<Record<number, string>>({});
@@ -149,17 +170,17 @@ export function OrdersSidebar({
             <TabsList className="mx-5 mt-4 shrink-0">
               <TabsTrigger value="pending" className="flex-1 gap-1.5">
                 Pending
-                {(orders?.filter(o => o.status === "pending").length ?? 0) > 0 && (
+                {(orders?.filter(isOrderInPendingTab).length ?? 0) > 0 && (
                   <Badge className="h-4 px-1 text-[10px] bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-100">
-                    {orders!.filter(o => o.status === "pending").length}
+                    {orders!.filter(isOrderInPendingTab).length}
                   </Badge>
                 )}
               </TabsTrigger>
               <TabsTrigger value="confirmed" className="flex-1 gap-1.5">
                 Confirmed
-                {(orders?.filter(o => o.status === "confirmed").length ?? 0) > 0 && (
+                {(orders?.filter(isOrderInConfirmedTab).length ?? 0) > 0 && (
                   <Badge className="h-4 px-1 text-[10px] bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-100">
-                    {orders!.filter(o => o.status === "confirmed").length}
+                    {orders!.filter(isOrderInConfirmedTab).length}
                   </Badge>
                 )}
               </TabsTrigger>
@@ -168,7 +189,7 @@ export function OrdersSidebar({
 
             {/* Pending tab */}
             <TabsContent value="pending" className="flex-1 overflow-y-auto px-5 pt-4 pb-6 mt-0">
-              {!orders?.filter(o => o.status === "pending").length ? (
+              {!orders?.filter(isOrderInPendingTab).length ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center">
                   <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mb-3">
                     <CircleCheck className="w-5 h-5 text-muted-foreground" />
@@ -178,7 +199,7 @@ export function OrdersSidebar({
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {orders!.filter(o => o.status === "pending").map(order => (
+                  {orders!.filter(isOrderInPendingTab).map(order => (
                     <div key={order.id} className="bg-card border rounded-xl p-3.5 flex flex-col gap-2 shadow-sm">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex flex-col min-w-0">
@@ -202,23 +223,38 @@ export function OrdersSidebar({
                         className={`text-xs text-muted-foreground cursor-pointer ${expandedOrderId === order.id ? "" : "line-clamp-2"}`}
                         onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
                       >{order.summary}</p>
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
                         <span className="text-xs text-muted-foreground/60 flex items-center gap-1">
                           <Clock className="w-3 h-3" />{new Date(order.createdAt).toLocaleString()}
                         </span>
-                        <div className="flex gap-1.5">
+                        <div className="flex gap-1.5 flex-wrap">
+                          {/* Re-check payment with Paystack — for orders the buyer
+                              paid for but whose status is stuck because the webhook
+                              never reached us. */}
+                          {order.paymentStatus === "pending" && order.paymentReference && onRecheckPayment && (
+                            <Button size="sm" variant="outline"
+                              className="h-7 text-xs rounded-full px-3 text-amber-600 border-amber-300 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40"
+                              onClick={() => onRecheckPayment(order.id, order.paymentReference!)}
+                              disabled={recheckingOrderId === order.id}>
+                              {recheckingOrderId === order.id ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <RefreshCcw className="w-3 h-3 mr-1" />}
+                              Re-check payment
+                            </Button>
+                          )}
                           <Button size="sm" variant="outline"
                             className="h-7 text-xs rounded-full px-3 text-red-500 border-red-200 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
                             onClick={() => onUpdateOrderStatus(order.id, "cancelled")}
                             disabled={isUpdatePending}>
                             <PackageX className="w-3 h-3 mr-1" /> Cancel
                           </Button>
-                          <Button size="sm" variant="outline"
-                            className="h-7 text-xs rounded-full px-3 text-blue-600 border-blue-300 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40"
-                            onClick={() => onUpdateOrderStatus(order.id, "confirmed")}
-                            disabled={isUpdatePending}>
-                            <CircleCheck className="w-3 h-3 mr-1" /> Confirm
-                          </Button>
+                          {/* Manual Confirm only useful for non-escrow (WhatsApp) orders */}
+                          {!order.paymentReference && (
+                            <Button size="sm" variant="outline"
+                              className="h-7 text-xs rounded-full px-3 text-blue-600 border-blue-300 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40"
+                              onClick={() => onUpdateOrderStatus(order.id, "confirmed")}
+                              disabled={isUpdatePending}>
+                              <CircleCheck className="w-3 h-3 mr-1" /> Confirm
+                            </Button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -229,7 +265,7 @@ export function OrdersSidebar({
 
             {/* Confirmed tab */}
             <TabsContent value="confirmed" className="flex-1 overflow-y-auto px-5 pt-4 pb-6 mt-0">
-              {!orders?.filter(o => o.status === "confirmed").length ? (
+              {!orders?.filter(isOrderInConfirmedTab).length ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center">
                   <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mb-3">
                     <Package className="w-5 h-5 text-muted-foreground" />
@@ -239,7 +275,7 @@ export function OrdersSidebar({
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {orders!.filter(o => o.status === "confirmed").map(order => {
+                  {orders!.filter(isOrderInConfirmedTab).map(order => {
                     const isPaid = order.paymentStatus === "paid";
                     const isShipped = !!order.shippedAt;
                     const isReleased = !!order.releasedAt;
@@ -261,7 +297,9 @@ export function OrdersSidebar({
                           )}
                         </div>
                         <div className="flex flex-col items-end gap-1 shrink-0">
-                          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400">Confirmed</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400">
+                            {isPaid ? "Paid · Ready to ship" : "Confirmed"}
+                          </span>
                           <span className="text-[10px] font-mono text-muted-foreground">{orderRef(order.id)}</span>
                           <PaymentBadge order={order} />
                           {isShipped && (
