@@ -16,6 +16,7 @@ import {
   SlidersHorizontal,
   Banknote,
   BarChart2,
+  Tag,
 } from "lucide-react";
 import {
   useGetStoreBySlug,
@@ -63,6 +64,7 @@ import { CurrencyDialog } from "@/components/dashboard/CurrencyDialog";
 import { QrCodeDialog } from "@/components/dashboard/QrCodeDialog";
 import { PayoutSetupDialog } from "@/components/dashboard/PayoutSetupDialog";
 import { AnalyticsDialog } from "@/components/dashboard/AnalyticsDialog";
+import { PromoCodesDialog } from "@/components/dashboard/PromoCodesDialog";
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -174,6 +176,7 @@ export default function Dashboard() {
   const [isQrOpen, setIsQrOpen] = useState(false);
   const [isPayoutSetupOpen, setIsPayoutSetupOpen] = useState(false);
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
+  const [isPromoCodesOpen, setIsPromoCodesOpen] = useState(false);
   const [shippingOrderId, setShippingOrderId] = useState<number | null>(null);
   const [verifyingOrderId, setVerifyingOrderId] = useState<number | null>(null);
 
@@ -652,6 +655,10 @@ export default function Dashboard() {
                     <span className="ml-auto w-2 h-2 rounded-full bg-green-500" />
                   )}
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsPromoCodesOpen(true)}>
+                  <Tag className="w-4 h-4 mr-2 text-rose-500" />
+                  Promo Codes
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setIsAnalyticsOpen(true)}>
                   <BarChart2 className="w-4 h-4 mr-2 text-violet-500" />
                   Analytics
@@ -802,6 +809,12 @@ export default function Dashboard() {
         open={isAnalyticsOpen}
         onOpenChange={setIsAnalyticsOpen}
         storeSlug={store?.slug}
+      />
+      <PromoCodesDialog
+        open={isPromoCodesOpen}
+        onOpenChange={setIsPromoCodesOpen}
+        storeId={store?.id}
+        storeCurrency={store?.currency || "GHS"}
       />
     </div>
   );

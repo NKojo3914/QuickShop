@@ -1,5 +1,5 @@
 import { eq, desc, and, gt } from "drizzle-orm";
-import { db, storesTable, productsTable, conversations, messages, ordersTable } from "@workspace/db";
+import { db, storesTable, productsTable, conversations, messages, ordersTable, promoCodesTable } from "@workspace/db";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import {
   initTransaction,
@@ -483,6 +483,110 @@ export async function processTelegramUpdate(
     }
   }
 
+  // ── Check if we're awaiting a promo code from a previous turn ───────────
+  const awaitingPromoIdx = reversedHistory.findIndex(
+    (m) => m.role === "assistant" && m.content.startsWith("ORDER_AWAITING_PROMO:")
+  );
+  const awaitingPromoMsg = awaitingPromoIdx >= 0 ? reversedHistory[awaitingPromoIdx] : null;
+  const validAwaitingPromo =
+    awaitingPromoMsg !== null &&
+    !orderAlreadyPlaced &&
+    !reversedHistory.slice(0, awaitingPromoIdx).some((m) => m.role === "user");
+
+  if (validAwaitingPromo) {
+    const originalSummary = awaitingPromoMsg!.content.slice("ORDER_AWAITING_PROMO:".length).trim();
+    const inputCode = userText.trim().toUpperCase().replace(/\s+/g, "");
+    const isSkip = ["SKIP", "NO", "NONE", "N/A", "NOPE", "-"].includes(inputCode);
+
+    let finalSummary = originalSummary;
+    let promoFeedback = "";
+
+    if (!isSkip) {
+      const [promo] = await db
+        .select()
+        .from(promoCodesTable)
+        .where(and(
+          eq(promoCodesTable.storeId, storeId),
+          eq(promoCodesTable.code, inputCode),
+          eq(promoCodesTable.active, true),
+        ));
+
+      if (!promo) {
+        const errMsg = `❌ That code doesn't seem right. Try again or reply *skip* to continue without a discount.`;
+        await db.insert(messages).values([
+          { conversationId, role: "user", content: userText },
+          { conversationId, role: "assistant", content: `ORDER_AWAITING_PROMO: ${originalSummary}` },
+          { conversationId, role: "assistant", content: errMsg },
+        ]);
+        await sendTelegramMessage(store.telegramBotToken, chatId, errMsg);
+        return;
+      }
+
+      if (promo.expiresAt && new Date(promo.expiresAt) < new Date()) {
+        const errMsg = `⏰ That code has expired. Reply *skip* to continue without a discount.`;
+        await db.insert(messages).values([
+          { conversationId, role: "user", content: userText },
+          { conversationId, role: "assistant", content: `ORDER_AWAITING_PROMO: ${originalSummary}` },
+          { conversationId, role: "assistant", content: errMsg },
+        ]);
+        await sendTelegramMessage(store.telegramBotToken, chatId, errMsg);
+        return;
+      }
+
+      if (promo.maxUses !== null && promo.usedCount >= promo.maxUses) {
+        const errMsg = `😔 That code has reached its limit. Reply *skip* to continue without a discount.`;
+        await db.insert(messages).values([
+          { conversationId, role: "user", content: userText },
+          { conversationId, role: "assistant", content: `ORDER_AWAITING_PROMO: ${originalSummary}` },
+          { conversationId, role: "assistant", content: errMsg },
+        ]);
+        await sendTelegramMessage(store.telegramBotToken, chatId, errMsg);
+        return;
+      }
+
+      // Apply discount to the order total
+      const currency = store.currency || "GHS";
+      const originalAmount = parseTotalFromSummary(originalSummary, currency);
+      if (originalAmount && originalAmount > 0) {
+        const promoValue = parseFloat(promo.value);
+        let discount = promo.type === "percent"
+          ? (originalAmount * promoValue) / 100
+          : promoValue;
+        discount = Math.min(discount, originalAmount);
+        const newTotal = Math.max(0, originalAmount - discount);
+
+        const discountLabel = promo.type === "percent"
+          ? `${promoValue}% off with *${promo.code}*`
+          : `${currency} ${promoValue.toFixed(2)} off with *${promo.code}*`;
+        // Rebuild summary with updated total
+        finalSummary = originalSummary.replace(
+          /Total:.*$/i,
+          `Total: ${currency} ${newTotal.toFixed(2)} (${discountLabel.replace(/\*/g, "")})`
+        );
+        promoFeedback = `✅ Code *${promo.code}* applied! You saved *${currency} ${discount.toFixed(2)}*. New total: *${currency} ${newTotal.toFixed(2)}*`;
+      } else {
+        promoFeedback = `✅ Code *${promo.code}* applied!`;
+      }
+
+      // Increment usage count
+      await db.update(promoCodesTable)
+        .set({ usedCount: promo.usedCount + 1 })
+        .where(eq(promoCodesTable.id, promo.id));
+    }
+
+    // Transition to phone ask
+    const phoneAsk = promoFeedback
+      ? `${promoFeedback}\n\n📞 Now, please share your 10-digit phone number (e.g. 0241234567) so the seller can reach you.`
+      : `📞 No problem! Could you share your 10-digit phone number (e.g. 0241234567) so the seller can reach you?`;
+    await db.insert(messages).values([
+      { conversationId, role: "user", content: userText },
+      { conversationId, role: "assistant", content: `ORDER_AWAITING_PHONE: ${finalSummary}` },
+      { conversationId, role: "assistant", content: phoneAsk },
+    ]);
+    await sendTelegramMessage(store.telegramBotToken, chatId, phoneAsk);
+    return;
+  }
+
   // ── Check if we're awaiting a phone number from a previous turn ──────────
   // IMPORTANT: only treat it as pending if the AWAITING_PHONE marker is the most recent
   // assistant message AND there are NO user messages after it in history.
@@ -650,14 +754,14 @@ export async function processTelegramUpdate(
 
     if (!confirmedOrderSummary) confirmedOrderSummary = `Order from ${store.name}`;
 
-    // Ask for phone number before finalising
-    const phoneAsk = `Perfect! 📞 Before I confirm your order, could you share your 10-digit phone number (e.g. 0241234567) so the seller can reach you?`;
+    // Ask for promo code before asking for phone — sellers can skip with "skip"
+    const promoAsk = `Great! 🎉 Do you have a promo code? Type it now, or reply *skip* to continue.`;
     await db.insert(messages).values([
       { conversationId, role: "user", content: userText },
-      { conversationId, role: "assistant", content: `ORDER_AWAITING_PHONE: ${confirmedOrderSummary}` },
-      { conversationId, role: "assistant", content: phoneAsk },
+      { conversationId, role: "assistant", content: `ORDER_AWAITING_PROMO: ${confirmedOrderSummary}` },
+      { conversationId, role: "assistant", content: promoAsk },
     ]);
-    await sendTelegramMessage(store.telegramBotToken, chatId, phoneAsk);
+    await sendTelegramMessage(store.telegramBotToken, chatId, promoAsk);
     return;
   }
 
@@ -681,8 +785,8 @@ export async function processTelegramUpdate(
       );
     } else if (responseText.includes("CONFIRM_ORDER:") && !orderAlreadyPlaced) {
       confirmedOrderSummary = responseText.split("CONFIRM_ORDER:")[1]?.trim().split("\n")[0] || "";
-      // Always ask for phone next — never show "on its way" before we have contact details.
-      assistantResponse = `📞 Before I confirm your order, could you share your phone number so the seller can reach you?`;
+      // Ask for promo code first, then phone.
+      assistantResponse = `Great! 🎉 Do you have a promo code? Type it now, or reply *skip* to continue.`;
     } else {
       assistantResponse = responseText;
       // Safety net: AI confirmed the order in natural language but forgot CONFIRM_ORDER:
@@ -695,7 +799,7 @@ export async function processTelegramUpdate(
           (m) => m.role === "assistant" && m.content.includes("Total")
         );
         confirmedOrderSummary = totalMsg ? (cleanSummary(totalMsg.content) || totalMsg.content.slice(0, 300)) : `Order from ${store.name}`;
-        assistantResponse = `📞 Before I confirm your order, could you share your phone number so the seller can reach you?`;
+        assistantResponse = `Great! 🎉 Do you have a promo code? Type it now, or reply *skip* to continue.`;
       }
     }
   } catch (err) {
@@ -730,7 +834,7 @@ export async function processTelegramUpdate(
     await db.insert(messages).values([
       { conversationId, role: "user", content: userText },
       { conversationId, role: "assistant", content: `CONFIRM_ORDER: ${confirmedOrderSummary}` },
-      { conversationId, role: "assistant", content: `ORDER_AWAITING_PHONE: ${confirmedOrderSummary}` },
+      { conversationId, role: "assistant", content: `ORDER_AWAITING_PROMO: ${confirmedOrderSummary}` },
       { conversationId, role: "assistant", content: assistantResponse },
     ]);
   } else {

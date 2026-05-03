@@ -8,3 +8,4 @@ export * from "./telegramUpdates";
 export * from "./productVariants";
 export * from "./productImages";
 export * from "./reviews";
+export * from "./promoCodes";
