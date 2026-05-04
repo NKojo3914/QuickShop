@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { SlidersHorizontal, ShoppingBag, Loader2, Image as ImageIcon, Phone, Truck } from "lucide-react";
+import { SlidersHorizontal, ShoppingBag, Loader2, Image as ImageIcon, Phone, Truck, Palette } from "lucide-react";
 import type { UseFormReturn } from "react-hook-form";
 import {
   Dialog,
@@ -28,6 +28,20 @@ interface StoreSettingsFormValues {
   deliveryFee?: string;
 }
 
+// Quick-pick swatches shown in the colour picker
+const ACCENT_SWATCHES = [
+  "#3b82f6", // blue (default)
+  "#10b981", // emerald
+  "#f59e0b", // amber
+  "#ef4444", // red
+  "#8b5cf6", // violet
+  "#ec4899", // pink
+  "#06b6d4", // cyan
+  "#f97316", // orange
+  "#6366f1", // indigo
+  "#000000", // black
+];
+
 export interface StoreSettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -40,6 +54,8 @@ export interface StoreSettingsDialogProps {
   logoInputRef: React.RefObject<HTMLInputElement | null>;
   isUpdatePending: boolean;
   storeCurrency?: string | null;
+  accentColor: string;
+  setAccentColor: (c: string) => void;
 }
 
 export function StoreSettingsDialog({
@@ -54,7 +70,10 @@ export function StoreSettingsDialog({
   logoInputRef,
   isUpdatePending,
   storeCurrency,
+  accentColor,
+  setAccentColor,
 }: StoreSettingsDialogProps) {
+  const colorInputRef = useRef<HTMLInputElement>(null);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px] rounded-3xl">
@@ -176,6 +195,62 @@ export function StoreSettingsDialog({
                 </FormItem>
               )}
             />
+            {/* Accent colour */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-1.5">
+                <Palette className="w-3.5 h-3.5" /> Brand Colour
+              </label>
+              <div className="flex items-center gap-2 flex-wrap">
+                {ACCENT_SWATCHES.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    title={c}
+                    onClick={() => setAccentColor(c)}
+                    className={`w-7 h-7 rounded-full border-2 transition-transform hover:scale-110 active:scale-95 ${
+                      accentColor === c ? "border-foreground scale-110" : "border-transparent"
+                    }`}
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+                {/* Custom colour input */}
+                <button
+                  type="button"
+                  title="Custom colour"
+                  onClick={() => colorInputRef.current?.click()}
+                  className={`w-7 h-7 rounded-full border-2 transition-transform hover:scale-110 active:scale-95 overflow-hidden ${
+                    !ACCENT_SWATCHES.includes(accentColor) && accentColor
+                      ? "border-foreground scale-110"
+                      : "border-dashed border-muted-foreground/50"
+                  }`}
+                  style={!ACCENT_SWATCHES.includes(accentColor) && accentColor ? { backgroundColor: accentColor } : {}}
+                >
+                  {(ACCENT_SWATCHES.includes(accentColor) || !accentColor) && (
+                    <span className="text-muted-foreground text-xs leading-none">+</span>
+                  )}
+                </button>
+                <input
+                  ref={colorInputRef}
+                  type="color"
+                  value={accentColor || "#3b82f6"}
+                  onChange={(e) => setAccentColor(e.target.value)}
+                  className="sr-only"
+                />
+                {accentColor && (
+                  <button
+                    type="button"
+                    onClick={() => setAccentColor("")}
+                    className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 ml-1"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Shown on your storefront — buttons, price tags, and highlights.
+              </p>
+            </div>
+
             <DialogFooter className="pt-2">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
               <Button type="submit" disabled={isUpdatePending || isLogoUploading}>

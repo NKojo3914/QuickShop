@@ -148,6 +148,28 @@ function OosBadge() {
   );
 }
 
+// Convert a hex colour to the "H S% L%" format shadcn CSS variables use
+function hexToHslVars(hex: string): string | null {
+  const m = hex.match(/^#([0-9a-f]{6})$/i);
+  if (!m) return null;
+  const r = parseInt(m[1].slice(0, 2), 16) / 255;
+  const g = parseInt(m[1].slice(2, 4), 16) / 255;
+  const b = parseInt(m[1].slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+      case g: h = ((b - r) / d + 2) / 6; break;
+      case b: h = ((r - g) / d + 4) / 6; break;
+    }
+  }
+  return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function Storefront() {
@@ -181,6 +203,25 @@ export default function Storefront() {
     })();
   }, [slug]);
 
+  // Apply store's brand accent colour as a CSS variable override
+  useEffect(() => {
+    const accent = (store as { accentColor?: string | null } | undefined)?.accentColor;
+    if (!accent) return;
+    const hsl = hexToHslVars(accent);
+    if (!hsl) return;
+    document.documentElement.style.setProperty("--primary", hsl);
+    // White foreground for dark colours, dark for light ones
+    const lightness = parseFloat(hsl.split(" ")[2]);
+    document.documentElement.style.setProperty(
+      "--primary-foreground",
+      lightness < 55 ? "0 0% 100%" : "222.2 47.4% 11.2%",
+    );
+    return () => {
+      document.documentElement.style.removeProperty("--primary");
+      document.documentElement.style.removeProperty("--primary-foreground");
+    };
+  }, [(store as { accentColor?: string | null } | undefined)?.accentColor]);
+
   const filteredProducts = useMemo(() => {
     if (!searchQuery.trim()) return products;
     const q = searchQuery.toLowerCase();
@@ -189,7 +230,26 @@ export default function Storefront() {
     );
   }, [products, searchQuery]);
 
+  // Group products by category if any have one set
   type ProductRow = NonNullable<typeof products>[number];
+  const categorized = useMemo<Array<{ name: string; items: ProductRow[] }> | null>(() => {
+    if (!filteredProducts) return null;
+    const map = new Map<string, ProductRow[]>();
+    const uncategorized: ProductRow[] = [];
+    for (const p of filteredProducts) {
+      const cat = (p as ProductRow & { category?: string | null }).category?.trim();
+      if (cat) {
+        if (!map.has(cat)) map.set(cat, []);
+        map.get(cat)!.push(p);
+      } else {
+        uncategorized.push(p);
+      }
+    }
+    if (map.size === 0) return null; // no categories at all — use flat grid
+    const sections = [...map.entries()].map(([name, items]) => ({ name, items }));
+    if (uncategorized.length > 0) sections.push({ name: "Other", items: uncategorized });
+    return sections;
+  }, [filteredProducts]);
 
   // The product currently selected for the detail dialog
   const openProduct = useMemo<DetailProduct | null>(() => {
@@ -362,8 +422,9 @@ export default function Storefront() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-8 sm:gap-x-8 sm:gap-y-12">
-            {filteredProducts?.map((product, productIdx) => {
+          (() => {
+            // Reusable card renderer
+            const renderCard = (product: ProductRow, productIdx: number) => {
               const p = product as typeof product & { images?: { url: string }[] };
               const galleryUrls = (p.images ?? []).map((img: { url: string }) => img.url);
               const imageUrls = galleryUrls.length > 0 ? galleryUrls : product.imageUrl ? [product.imageUrl] : [];
@@ -371,26 +432,17 @@ export default function Storefront() {
               const anyVariantInStock = hasVariants ? product.variants.some((v) => v.inStock) : true;
               const outOfStock = hasVariants ? !anyVariantInStock : product.inStock === false;
               const inCartCount = items.filter((i) => i.id === product.id).reduce((s, i) => s + i.quantity, 0);
-
               return (
                 <Card
                   key={product.id}
                   role="button"
                   tabIndex={0}
                   onClick={() => setOpenProductId(product.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      setOpenProductId(product.id);
-                    }
-                  }}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpenProductId(product.id); } }}
                   style={{ animationDelay: `${Math.min(productIdx, 8) * 60}ms` }}
-                  className={`qs-card-in cursor-pointer overflow-hidden rounded-3xl border-border shadow-sm flex flex-col h-full bg-card transition-all duration-300 hover:shadow-lg hover:-translate-y-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
-                    outOfStock ? "opacity-70" : ""
-                  }`}
+                  className={`qs-card-in cursor-pointer overflow-hidden rounded-3xl border-border shadow-sm flex flex-col h-full bg-card transition-all duration-300 hover:shadow-lg hover:-translate-y-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${outOfStock ? "opacity-70" : ""}`}
                 >
                   <ImageCarousel urls={imageUrls} alt={product.name} outOfStock={outOfStock} />
-
                   <CardContent className="p-4 sm:p-6 flex-1 flex flex-col">
                     <div className="flex justify-between items-start mb-2 gap-3">
                       <h3 className="font-bold text-lg sm:text-xl text-foreground line-clamp-1">{product.name}</h3>
@@ -398,38 +450,52 @@ export default function Storefront() {
                         {store?.currency} {product.price}
                       </span>
                     </div>
-
                     {product.description && (
-                      <p className="text-muted-foreground text-sm leading-relaxed mb-4 line-clamp-2 flex-1">
-                        {product.description}
-                      </p>
+                      <p className="text-muted-foreground text-sm leading-relaxed mb-4 line-clamp-2 flex-1">{product.description}</p>
                     )}
-
                     <div className="mt-auto pt-2 flex items-center justify-between text-sm">
                       <span className="text-muted-foreground flex items-center gap-1.5">
-                        {hasVariants ? (
-                          <>
-                            <span className="font-medium">{product.variants.length}</span> options
-                          </>
-                        ) : outOfStock ? (
-                          <span className="text-destructive flex items-center gap-1">
-                            <PackageX className="w-3.5 h-3.5" /> Out of stock
-                          </span>
-                        ) : inCartCount > 0 ? (
-                          <span className="text-primary font-medium">{inCartCount} in cart</span>
-                        ) : (
-                          <>Tap for details</>
-                        )}
+                        {hasVariants ? (<><span className="font-medium">{product.variants.length}</span> options</>)
+                          : outOfStock ? (<span className="text-destructive flex items-center gap-1"><PackageX className="w-3.5 h-3.5" /> Out of stock</span>)
+                          : inCartCount > 0 ? (<span className="text-primary font-medium">{inCartCount} in cart</span>)
+                          : <>Tap for details</>}
                       </span>
-                      <span className="text-primary font-semibold flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
+                      <span className="text-primary font-semibold flex items-center gap-1">
                         View <ChevronsRight className="w-4 h-4" />
                       </span>
                     </div>
                   </CardContent>
                 </Card>
               );
-            })}
-          </div>
+            };
+
+            const grid = (prods: ProductRow[]) => (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-8 sm:gap-x-8 sm:gap-y-10">
+                {prods.map((p, i) => renderCard(p, i))}
+              </div>
+            );
+
+            if (categorized) {
+              return (
+                <div className="space-y-12">
+                  {categorized.map(({ name, items: catItems }) => (
+                    <section key={name}>
+                      <div className="flex items-center gap-4 mb-6">
+                        <h2 className="text-xl font-serif font-bold whitespace-nowrap">{name}</h2>
+                        <div className="flex-1 h-px bg-border" />
+                        <span className="text-sm text-muted-foreground whitespace-nowrap">
+                          {catItems.length} {catItems.length === 1 ? "item" : "items"}
+                        </span>
+                      </div>
+                      {grid(catItems)}
+                    </section>
+                  ))}
+                </div>
+              );
+            }
+
+            return grid(filteredProducts ?? []);
+          })()
         )}
       </div>
 

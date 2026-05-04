@@ -185,6 +185,7 @@ export default function Dashboard() {
   const [telegramUsername, setTelegramUsername] = useState("");
   const [currency, setCurrency] = useState("GHS");
   const [logoUrl, setLogoUrl] = useState<string>("");
+  const [accentColor, setAccentColor] = useState<string>("");
   const [isLogoUploading, setIsLogoUploading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -210,6 +211,7 @@ export default function Dashboard() {
       setTelegramUsername(store.telegramBotUsername || "");
       setCurrency(store.currency || "GHS");
       setLogoUrl(store.logoUrl || "");
+      setAccentColor((store as { accentColor?: string | null }).accentColor || "");
       storeSettingsForm.reset({
         name: store.name,
         whatsappNumber: store.whatsappNumber,
@@ -382,6 +384,7 @@ export default function Dashboard() {
           whatsappNumber: data.whatsappNumber,
           description: data.description,
           logoUrl: logoUrl || undefined,
+          accentColor: accentColor || undefined,
           ...(data.deliveryFee !== undefined && data.deliveryFee !== ""
             ? { deliveryFee: data.deliveryFee }
             : {}),
@@ -733,6 +736,8 @@ export default function Dashboard() {
         logoInputRef={logoInputRef}
         isUpdatePending={updateStoreMutation.isPending}
         storeCurrency={store?.currency}
+        accentColor={accentColor}
+        setAccentColor={setAccentColor}
       />
       <TelegramSettingsDialog
         open={isTelegramSettingsOpen}

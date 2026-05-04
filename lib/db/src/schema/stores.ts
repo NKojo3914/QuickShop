@@ -16,6 +16,12 @@ export const storesTable = pgTable("stores", {
   currency: text("currency").notNull().default("GHS"),
   sellerId: integer("seller_id").references(() => sellersTable.id, { onDelete: "set null" }),
 
+  // ── Branding ─────────────────────────────────────────────────────────────
+  // Hex colour chosen by the seller (e.g. "#e11d48"). Applied to the storefront
+  // as a CSS custom property override so buttons, badges, and price tags all
+  // use the store's own colour.
+  accentColor: text("accent_color"),
+
   // ── Delivery ──────────────────────────────────────────────────────────────
   // Flat delivery fee added to every Telegram order payment link.
   // Sellers set this in Store Settings. 0 = free delivery.
