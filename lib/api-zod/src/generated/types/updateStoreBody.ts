@@ -16,4 +16,5 @@ export interface UpdateStoreBody {
   sellerTelegramChatId?: string;
   currency?: string;
   deliveryFee?: string;
+  accentColor?: string;
 }

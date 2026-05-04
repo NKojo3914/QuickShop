@@ -205,7 +205,7 @@ export default function Storefront() {
 
   // Apply store's brand accent colour as a CSS variable override
   useEffect(() => {
-    const accent = (store as { accentColor?: string | null } | undefined)?.accentColor;
+    const accent = store?.accentColor;
     if (!accent) return;
     const hsl = hexToHslVars(accent);
     if (!hsl) return;
@@ -220,7 +220,7 @@ export default function Storefront() {
       document.documentElement.style.removeProperty("--primary");
       document.documentElement.style.removeProperty("--primary-foreground");
     };
-  }, [(store as { accentColor?: string | null } | undefined)?.accentColor]);
+  }, [store?.accentColor]);
 
   const filteredProducts = useMemo(() => {
     if (!searchQuery.trim()) return products;

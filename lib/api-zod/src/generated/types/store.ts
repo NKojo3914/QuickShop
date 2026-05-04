@@ -22,6 +22,8 @@ export interface Store {
   /** @nullable */
   sellerTelegramChatId?: string | null;
   currency: string;
+  /** @nullable */
+  accentColor?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

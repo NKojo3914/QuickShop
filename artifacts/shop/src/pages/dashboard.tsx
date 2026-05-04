@@ -211,7 +211,7 @@ export default function Dashboard() {
       setTelegramUsername(store.telegramBotUsername || "");
       setCurrency(store.currency || "GHS");
       setLogoUrl(store.logoUrl || "");
-      setAccentColor((store as { accentColor?: string | null }).accentColor || "");
+      setAccentColor(store.accentColor || "");
       storeSettingsForm.reset({
         name: store.name,
         whatsappNumber: store.whatsappNumber,
